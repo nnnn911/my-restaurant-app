@@ -1,0 +1,170 @@
+/* ============================================
+   DESIGN TOKENS - Quán Ăn Đồng Quê
+   Tông màu xanh lá đậm + beige
+============================================ */
+
+@font-face {
+  font-family: 'Montserrat';
+  src: url('../assets/fonts/Montserrat-Regular.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+}
+@font-face {
+  font-family: 'Montserrat';
+  src: url('../assets/fonts/Montserrat-Medium.ttf') format('truetype');
+  font-weight: 500;
+  font-style: normal;
+}
+@font-face {
+  font-family: 'Montserrat';
+  src: url('../assets/fonts/Montserrat-SemiBold.ttf') format('truetype');
+  font-weight: 600;
+  font-style: normal;
+}
+@font-face {
+  font-family: 'Montserrat';
+  src: url('../assets/fonts/Montserrat-Bold.ttf') format('truetype');
+  font-weight: 700;
+  font-style: normal;
+}
+@font-face {
+  font-family: 'Montserrat';
+  src: url('../assets/fonts/Montserrat-ExtraBold.ttf') format('truetype');
+  font-weight: 800;
+  font-style: normal;
+}
+@font-face {
+  font-family: 'Montserrat';
+  src: url('../assets/fonts/Montserrat-Black.ttf') format('truetype');
+  font-weight: 900;
+  font-style: normal;
+}
+@font-face {
+  font-family: 'Montserrat';
+  src: url('../assets/fonts/Montserrat-Light.ttf') format('truetype');
+  font-weight: 300;
+  font-style: normal;
+}
+@font-face {
+  font-family: 'Montserrat';
+  src: url('../assets/fonts/Montserrat-Italic.ttf') format('truetype');
+  font-weight: 400;
+  font-style: italic;
+}
+
+:root {
+  /* === Primary - Xanh lá đậm === */
+  --color-primary-900: #0d2b0f;
+  --color-primary-800: #1a4a1e;
+  --color-primary-700: #1f5c25;
+  --color-primary-600: #256b2c;
+  --color-primary-500: #2d7d35;
+  --color-primary-400: #3a9445;
+  --color-primary-300: #5cb868;
+  --color-primary-200: #8ed098;
+  --color-primary-100: #c3e8c8;
+  --color-primary-50:  #eaf6ec;
+
+  /* === Secondary - Beige / Warm Cream === */
+  --color-beige-900: #3d2f1a;
+  --color-beige-800: #6b4f2c;
+  --color-beige-700: #8b6840;
+  --color-beige-600: #a68556;
+  --color-beige-500: #c4a97a;
+  --color-beige-400: #d4bc96;
+  --color-beige-300: #e2ceae;
+  --color-beige-200: #eedfc8;
+  --color-beige-100: #f5ede0;
+  --color-beige-50:  #fdf8f2;
+
+  /* === Accent - Gold / Amber === */
+  --color-accent-500: #d4a017;
+  --color-accent-400: #e0b52a;
+  --color-accent-300: #f0ca5e;
+  --color-accent-100: #fdf3d0;
+
+  /* === Neutral === */
+  --color-white:    #ffffff;
+  --color-gray-50:  #f9fafb;
+  --color-gray-100: #f3f4f6;
+  --color-gray-200: #e5e7eb;
+  --color-gray-300: #d1d5db;
+  --color-gray-400: #9ca3af;
+  --color-gray-500: #6b7280;
+  --color-gray-600: #4b5563;
+  --color-gray-700: #374151;
+  --color-gray-800: #1f2937;
+  --color-gray-900: #111827;
+
+  /* === Status === */
+  --color-success: #22c55e;
+  --color-warning: #f59e0b;
+  --color-danger:  #ef4444;
+  --color-info:    #3b82f6;
+
+  /* === Semantic === */
+  --color-bg:         var(--color-beige-50);
+  --color-surface:    var(--color-white);
+  --color-border:     var(--color-beige-200);
+  --color-text:       var(--color-gray-800);
+  --color-text-muted: var(--color-gray-500);
+  --color-text-light: var(--color-gray-400);
+
+  /* === Spacing === */
+  --space-1:  0.25rem;
+  --space-2:  0.5rem;
+  --space-3:  0.75rem;
+  --space-4:  1rem;
+  --space-5:  1.25rem;
+  --space-6:  1.5rem;
+  --space-8:  2rem;
+  --space-10: 2.5rem;
+  --space-12: 3rem;
+  --space-16: 4rem;
+  --space-20: 5rem;
+  --space-24: 6rem;
+
+  /* === Border radius === */
+  --radius-sm:   0.375rem;
+  --radius-md:   0.75rem;
+  --radius-lg:   1rem;
+  --radius-xl:   1.5rem;
+  --radius-2xl:  2rem;
+  --radius-full: 9999px;
+
+  /* === Shadow === */
+  --shadow-sm:  0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.04);
+  --shadow-md:  0 4px 16px rgba(0,0,0,0.10), 0 2px 6px rgba(0,0,0,0.06);
+  --shadow-lg:  0 10px 40px rgba(0,0,0,0.12), 0 4px 12px rgba(0,0,0,0.08);
+  --shadow-xl:  0 20px 60px rgba(0,0,0,0.15), 0 8px 24px rgba(0,0,0,0.10);
+  --shadow-primary: 0 4px 20px rgba(45,125,53,0.30);
+  --shadow-card:    0 2px 12px rgba(0,0,0,0.07);
+
+  /* === Transition === */
+  --transition-fast:   0.15s ease;
+  --transition-base:   0.25s ease;
+  --transition-slow:   0.4s ease;
+
+  /* === Typography === */
+  --font-family: 'Montserrat', sans-serif;
+  --font-size-xs:   0.75rem;
+  --font-size-sm:   0.875rem;
+  --font-size-base: 1rem;
+  --font-size-lg:   1.125rem;
+  --font-size-xl:   1.25rem;
+  --font-size-2xl:  1.5rem;
+  --font-size-3xl:  1.875rem;
+  --font-size-4xl:  2.25rem;
+  --font-size-5xl:  3rem;
+
+  /* === Z-index === */
+  --z-dropdown: 100;
+  --z-sticky:   200;
+  --z-overlay:  300;
+  --z-modal:    400;
+  --z-toast:    500;
+
+  /* === Navbar height === */
+  --navbar-height: 72px;
+  --navbar-height-mobile: 64px;
+}

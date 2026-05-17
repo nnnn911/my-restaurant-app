@@ -1,0 +1,17 @@
+{
+  "name": "dong-que-restaurant-app",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "build": "vite build",
+    "preview": "vite preview --host 0.0.0.0",
+    "seed:sql": "node scripts/generate-seed-sql.mjs"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.49.8",
+    "vite": "^6.3.5"
+  },
+  "devDependencies": {}
+}
