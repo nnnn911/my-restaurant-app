@@ -409,14 +409,14 @@ const renderLogin = () => {
                 <label class="form-label" for="staff-phone">Số điện thoại</label>
                 <div class="input-group">
                   <span class="input-icon" aria-hidden="true">${icon('phone')}</span>
-                  <input class="form-control" id="staff-phone" type="tel" autocomplete="tel" placeholder="0902222333" required>
+                  <input class="form-control" id="staff-phone" type="tel" autocomplete="tel" placeholder="Nhập số điện thoại" required>
                 </div>
               </div>
               <div class="form-group">
                 <label class="form-label" for="staff-password">Mật khẩu</label>
                 <div class="input-group">
                   <span class="input-icon" aria-hidden="true">${icon('password')}</span>
-                  <input class="form-control" id="staff-password" type="password" autocomplete="current-password" placeholder="123456" required>
+                  <input class="form-control" id="staff-password" type="password" autocomplete="current-password" placeholder="Nhập mật khẩu" required>
                   <span class="input-icon-right" id="toggle-staff-pw" role="button" aria-label="Hiện mật khẩu" title="Hiện mật khẩu">${icon('showpassword')}</span>
                 </div>
               </div>

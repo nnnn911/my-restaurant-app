@@ -35,18 +35,16 @@ const renderLogin = () => {
                 <label class="form-label" for="owner-phone">Số điện thoại</label>
                 <div class="input-group">
                   <span class="input-icon" aria-hidden="true">${icon('phone')}</span>
-                  <input class="form-control" id="owner-phone" type="tel" autocomplete="tel" placeholder="0903333444" required>
+                  <input class="form-control" id="owner-phone" type="tel" autocomplete="tel" placeholder="Nhập số điện thoại" required>
                 </div>
-                <div class="form-hint" style="margin-top:6px">SĐT mặc định: <strong>0903333444</strong></div>
               </div>
               <div class="form-group">
                 <label class="form-label" for="owner-password">Mật khẩu</label>
                 <div class="input-group">
                   <span class="input-icon" aria-hidden="true">${icon('password')}</span>
-                  <input class="form-control" id="owner-password" type="password" autocomplete="current-password" placeholder="123456" required>
+                  <input class="form-control" id="owner-password" type="password" autocomplete="current-password" placeholder="Nhập mật khẩu" required>
                   <span class="input-icon-right" id="toggle-owner-pw" role="button" aria-label="Hiện mật khẩu" title="Hiện mật khẩu">${icon('showpassword')}</span>
                 </div>
-                <div class="form-hint" style="margin-top:6px">Mật khẩu mặc định: <strong>123456</strong></div>
               </div>
               <div id="owner-login-error" class="form-error" style="display:none;margin-bottom:var(--space-4)"></div>
               <button type="submit" class="btn btn-primary btn-block btn-lg">Đăng nhập</button>

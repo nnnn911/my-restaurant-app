@@ -1,7 +1,23 @@
 import { defineConfig } from 'vite';
+import { cpSync, existsSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const rootDir = dirname(fileURLToPath(import.meta.url));
+
+const copyRuntimeAssets = () => ({
+  name: 'copy-runtime-assets',
+  closeBundle() {
+    const source = resolve(rootDir, 'assets');
+    const target = resolve(rootDir, 'dist/assets');
+    if (!existsSync(source)) return;
+    cpSync(source, target, { recursive: true });
+  }
+});
 
 export default defineConfig({
   appType: 'mpa',
+  plugins: [copyRuntimeAssets()],
   build: {
     rollupOptions: {
       input: {

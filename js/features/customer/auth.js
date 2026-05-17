@@ -47,14 +47,14 @@ const createModal = () => {
             <label class="form-label" for="login-phone">Số điện thoại</label>
             <div class="input-group">
               <span class="input-icon" aria-hidden="true">${icon('phone')}</span>
-              <input class="form-control" type="tel" id="login-phone" name="phone" placeholder="0999999999" autocomplete="tel" required>
+              <input class="form-control" type="tel" id="login-phone" name="phone" placeholder="Nhập số điện thoại" autocomplete="tel" required>
             </div>
           </div>
           <div class="form-group">
             <label class="form-label" for="login-password">Mật khẩu</label>
             <div class="input-group">
               <span class="input-icon" aria-hidden="true">${icon('password')}</span>
-              <input class="form-control" type="password" id="login-password" name="password" placeholder="••••••••" autocomplete="current-password" required>
+              <input class="form-control" type="password" id="login-password" name="password" placeholder="Nhập mật khẩu" autocomplete="current-password" required>
               <span class="input-icon-right" id="toggle-login-pw" role="button" aria-label="Hiện mật khẩu" title="Hiện mật khẩu">${icon('showpassword')}</span>
             </div>
             <div style="display:flex;justify-content:flex-end;margin-top:8px">
@@ -76,14 +76,14 @@ const createModal = () => {
             <label class="form-label" for="reg-name">Họ và tên</label>
             <div class="input-group">
               <span class="input-icon" aria-hidden="true">${icon('user')}</span>
-              <input class="form-control" type="text" id="reg-name" name="name" placeholder="Nguyễn Văn A" autocomplete="name" required>
+              <input class="form-control" type="text" id="reg-name" name="name" placeholder="Nhập họ và tên" autocomplete="name" required>
             </div>
           </div>
           <div class="form-group">
             <label class="form-label" for="reg-phone">Số điện thoại</label>
             <div class="input-group">
               <span class="input-icon" aria-hidden="true">${icon('phone')}</span>
-              <input class="form-control" type="tel" id="reg-phone" name="phone" placeholder="0901234567" autocomplete="tel" required>
+              <input class="form-control" type="tel" id="reg-phone" name="phone" placeholder="Nhập số điện thoại" autocomplete="tel" required>
             </div>
           </div>
           <div class="form-group">

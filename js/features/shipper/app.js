@@ -180,14 +180,14 @@ const showLogin = () => {
             <label class="form-label" for="shipper-phone">Số điện thoại</label>
             <div class="input-group">
               <span class="input-icon" aria-hidden="true">${icon('phone')}</span>
-              <input class="form-control" type="tel" id="shipper-phone" autocomplete="tel" placeholder="0904444555" required>
+              <input class="form-control" type="tel" id="shipper-phone" autocomplete="tel" placeholder="Nhập số điện thoại" required>
             </div>
           </div>
           <div class="form-group">
             <label class="form-label" for="shipper-password">Mật khẩu</label>
             <div class="input-group">
               <span class="input-icon" aria-hidden="true">${icon('password')}</span>
-              <input class="form-control" type="password" id="shipper-password" autocomplete="current-password" placeholder="••••••" required>
+              <input class="form-control" type="password" id="shipper-password" autocomplete="current-password" placeholder="Nhập mật khẩu" required>
             </div>
           </div>
           <div id="shipper-login-error" class="form-error" style="display:none;margin-bottom:var(--space-4)"></div>
