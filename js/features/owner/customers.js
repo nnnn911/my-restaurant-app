@@ -13,6 +13,7 @@ import {
   scheduleRenderPage,
   rerenderOwnerPage,
   formatDate,
+  deleteUserOnline,
   updateUserPointsOnline,
   saveUsers,
   icon,
@@ -248,12 +249,16 @@ const bindCustomerForm = (closeDrawer) => {
     if (!u) return;
     const ok = await openStaffConfirm({ title: 'Xoá khách hàng', message: `Xác nhận xoá ${u.name || u.id}?`, confirmText: 'Xoá', danger: true });
     if (!ok) return;
-    saveUsers(getOwnerData().users.filter((item) => item.id !== u.id));
-    invalidateOwnerData();
-    customerSelectedId = null;
-    toast.success('Đã xoá khách hàng.');
-    closeDrawer?.();
-    rerenderOwnerPage();
+    try {
+      await deleteUserOnline(u.id);
+      invalidateOwnerData();
+      customerSelectedId = null;
+      toast.success('Đã xoá khách hàng.');
+      closeDrawer?.();
+      rerenderOwnerPage();
+    } catch (error) {
+      toast.error(error?.message || 'Không thể xoá khách hàng khỏi database.');
+    }
   });
 };
 

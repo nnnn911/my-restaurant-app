@@ -15,6 +15,7 @@ import {
   scheduleRenderPage,
   rerenderOwnerPage,
   formatPrice,
+  deleteMenuItemOnline,
   saveMenu,
   icon,
   openStaffConfirm,
@@ -39,6 +40,15 @@ let customerSheetPage = 1;
 
 const getSelectedMenuItem = () =>
   getOwnerData().menu.find((m) => m.id === menuSelectedId) || null;
+
+const getNextMenuId = (menu = []) => {
+  const nextNum = (menu || []).reduce((max, item) => {
+    const match = (item.id || '').toString().match(/^M(\d+)$/i);
+    if (!match) return max;
+    return Math.max(max, Number(match[1] || 0));
+  }, 0) + 1;
+  return `M${String(nextNum).padStart(3, '0')}`;
+};
 
 export const renderMenuPage = () => {
   const { menu } = getOwnerData();
@@ -211,12 +221,16 @@ const bindMenuForm = (closeDrawer) => {
       danger: true,
     });
     if (!ok) return;
-    saveMenu(getOwnerData().menu.filter((m) => m.id !== item.id));
-    invalidateOwnerData();
-    menuSelectedId = null;
-    toast.success('Đã xoá món.');
-    closeDrawer?.();
-    rerenderOwnerPage();
+    try {
+      await deleteMenuItemOnline(item.id);
+      invalidateOwnerData();
+      menuSelectedId = null;
+      toast.success('Đã xoá món.');
+      closeDrawer?.();
+      rerenderOwnerPage();
+    } catch (error) {
+      toast.error(error?.message || 'Không thể xoá món khỏi database.');
+    }
   });
 };
 
@@ -360,12 +374,8 @@ const openCreateMenuDrawer = () => {
       return;
     }
     const menu = getOwnerData().menu;
-    const nextNum = menu.reduce((max, item) => {
-      const n = Number((item.id || '').replace(/\D/g, ''));
-      return Number.isFinite(n) ? Math.max(max, n) : max;
-    }, 0) + 1;
     const item = {
-      id: `m${nextNum}`,
+      id: getNextMenuId(menu),
       name,
       category: document.getElementById('new-menu-category')?.value || 'kho',
       price,

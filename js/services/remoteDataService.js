@@ -264,6 +264,24 @@ export const remoteDataService = {
     if (error) throw error;
   },
 
+  async updateCurrentProfile(updates = {}) {
+    const client = requireSupabase();
+    const profile = await this.getCurrentProfile();
+    if (!profile?.authId) throw new Error('Không tìm thấy tài khoản hiện tại.');
+    const row = {
+      name: updates.name || profile.name || 'Khách hàng',
+      phone: updates.phone || profile.phone || null,
+    };
+    const { data, error } = await client
+      .from('profiles')
+      .update(row)
+      .eq('id', profile.authId)
+      .select('*')
+      .single();
+    if (error) throw error;
+    return mapProfile(data);
+  },
+
   async updateUserPoints(publicCode, points) {
     const client = requireSupabase();
     const nextPoints = Math.max(0, Number(points || 0));
@@ -346,6 +364,12 @@ export const remoteDataService = {
     if (error) throw error;
   },
 
+  async deleteMenuItem(id) {
+    const client = requireSupabase();
+    const { error } = await client.from('menu_items').delete().eq('id', id);
+    if (error) throw error;
+  },
+
   async getVouchers() {
     const client = requireSupabase();
     const { data, error } = await client
@@ -360,6 +384,22 @@ export const remoteDataService = {
     const client = requireSupabase();
     const rows = (Array.isArray(vouchers) ? vouchers : []).map(toVoucherRow).filter((v) => v.code);
     const { error } = await client.from('vouchers').upsert(rows, { onConflict: 'code' });
+    if (error) throw error;
+  },
+
+  async deleteVoucher(code) {
+    const client = requireSupabase();
+    const { error } = await client.from('vouchers').delete().eq('code', (code || '').toString().toUpperCase());
+    if (error) throw error;
+  },
+
+  async deleteCustomer(publicCode) {
+    const client = requireSupabase();
+    const { error } = await client
+      .from('profiles')
+      .delete()
+      .eq('public_code', publicCode)
+      .eq('role', 'customer');
     if (error) throw error;
   },
 

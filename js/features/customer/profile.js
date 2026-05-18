@@ -62,7 +62,7 @@ export const showProfileModal = () => {
   modal.querySelector('#profile-modal-close').addEventListener('click', () => { modal.remove(); document.body.style.overflow = ''; });
   modal.addEventListener('click', (e) => { if (e.target === modal) { modal.remove(); document.body.style.overflow = ''; } });
 
-  modal.querySelector('#profile-form').addEventListener('submit', (e) => {
+  modal.querySelector('#profile-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const errEl = modal.querySelector('#profile-error');
     const name = document.getElementById('pf-name').value.trim();
@@ -74,10 +74,18 @@ export const showProfileModal = () => {
     errEl.style.display = 'none';
 
     const updates = { name, phone };
-    const result = updateUser(updates);
+    const submitBtn = modal.querySelector('#profile-form button[type="submit"]');
+    submitBtn.disabled = true;
+    let result;
+    try {
+      result = await updateUser(updates);
+    } catch (error) {
+      result = { ok: false, msg: error?.message || 'Không thể cập nhật thông tin.' };
+    }
     if (!result?.ok) {
       errEl.innerHTML = `${icon('warning')} ${result?.msg || 'Không thể cập nhật thông tin.'}`;
       errEl.style.display = 'flex';
+      submitBtn.disabled = false;
       return;
     }
     updateNavbarUser();

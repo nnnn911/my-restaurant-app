@@ -15,6 +15,7 @@ import {
   scheduleRenderPage,
   rerenderOwnerPage,
   formatPrice,
+  deleteVoucherOnline,
   saveVouchers,
   icon,
   openStaffConfirm,
@@ -193,12 +194,16 @@ const bindVoucherForm = (closeDrawer) => {
     if (!v) return;
     const ok = await openStaffConfirm({ title: 'Xoá voucher', message: `Xác nhận xoá ${v.code}?`, confirmText: 'Xoá', danger: true });
     if (!ok) return;
-    saveVouchers(getOwnerData().vouchers.filter((item) => item.code !== v.code));
-    invalidateOwnerData();
-    voucherSelectedCode = null;
-    toast.success('Đã xoá voucher.');
-    closeDrawer?.();
-    rerenderOwnerPage();
+    try {
+      await deleteVoucherOnline(v.code);
+      invalidateOwnerData();
+      voucherSelectedCode = null;
+      toast.success('Đã xoá voucher.');
+      closeDrawer?.();
+      rerenderOwnerPage();
+    } catch (error) {
+      toast.error(error?.message || 'Không thể xoá voucher khỏi database.');
+    }
   });
 };
 

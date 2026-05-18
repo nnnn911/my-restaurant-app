@@ -407,6 +407,12 @@ const setUsersToDb = (users) => {
 export const getUsers = () => getUsersFromDb();
 export const saveUsers = (users) => setUsersToDb(users);
 
+export const deleteUserOnline = async (userId) => {
+  const users = getUsers();
+  if (shouldUseRemote()) await remoteDataService.deleteCustomer(userId);
+  saveDb({ ...ensureDb(), users: sanitizeUsers(users.filter((user) => user.id !== userId)) });
+};
+
 export const updateUserPointsOnline = async (userId, points) => {
   const db = ensureDb();
   const users = sanitizeUsers(db.users || []);
@@ -472,7 +478,7 @@ export const loginUser = (phone, password) => {
   return { ok: true, user };
 };
 
-export const updateUser = (updates) => {
+export const updateUser = async (updates) => {
   const current = getCurrentUser();
   if (!current) return;
   const users = getUsers();
@@ -482,9 +488,14 @@ export const updateUser = (updates) => {
   if (nextPhone && users.some((u) => u.id !== current.id && normalizePhone(u.phone) === nextPhone)) {
     return { ok: false, msg: 'Số điện thoại đã được sử dụng.' };
   }
-  const updated = sanitizeUser({ ...users[idx], ...updates });
+  let updated = sanitizeUser({ ...users[idx], ...updates });
+  if (shouldUseRemote()) {
+    const remoteProfile = await remoteDataService.updateCurrentProfile(updated);
+    updated = sanitizeUser({ ...updated, ...remoteProfile }, updated.id);
+  }
   users[idx] = updated;
-  saveUsers(users);
+  if (shouldUseRemote()) saveDb({ ...ensureDb(), users: sanitizeUsers(users) });
+  else saveUsers(users);
   saveCurrentUser(updated);
   return { ok: true, user: updated };
 };
@@ -737,6 +748,12 @@ export const saveVouchers = (vouchers) => {
   runRemoteSync(() => remoteDataService.saveVouchers(normalized));
 };
 
+export const deleteVoucherOnline = async (code) => {
+  const normalizedCode = (code || '').toString().trim().toUpperCase();
+  if (shouldUseRemote()) await remoteDataService.deleteVoucher(normalizedCode);
+  saveDb({ ...ensureDb(), vouchers: getVouchers().filter((voucher) => voucher.code !== normalizedCode) });
+};
+
 export const validateVoucher = (code, orderTotal) => {
   const normalizedCode = (code || '').toString().trim().toUpperCase();
   const vouchers = getVouchers();
@@ -949,6 +966,11 @@ export const saveMenu = (menu) => {
   const normalized = Array.isArray(menu) ? menu.map((item) => normalizeMenuItem(item)).filter((item) => ALLOWED_MENU_CATEGORIES.has(item.category)) : [];
   saveDb({ ...db, menu: normalized });
   runRemoteSync(() => remoteDataService.saveMenu(normalized));
+};
+
+export const deleteMenuItemOnline = async (id) => {
+  if (shouldUseRemote()) await remoteDataService.deleteMenuItem(id);
+  saveDb({ ...ensureDb(), menu: getMenu().filter((item) => item.id !== id) });
 };
 
 export const incrementMenuSoldCounts = (orderItems = []) => {

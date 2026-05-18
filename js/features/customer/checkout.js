@@ -4,6 +4,7 @@
 import {
   getCart, getCartTotal, createOrder, clearCart,
   getCurrentUser, calculateOrderPoints, formatPrice, incrementMenuSoldCounts,
+  getCurrentUserVouchers,
   validateVoucher, getCheckoutDraft, clearCheckoutDraft, setCheckoutDraft,
   createOrderOnline
 } from '../../data/store.js';
@@ -11,7 +12,7 @@ import { toast } from '../../ui/toast.js';
 import { updateCartBadge } from '../../ui/navbar.js';
 import { icon } from '../../ui/icons.js';
 import { showRedeemVoucherModal } from './rewards.js';
-import { escapeAttr } from '../../core/html.js';
+import { escapeAttr, escapeHtml } from '../../core/html.js';
 
 const DEFAULT_CITY = 'TP. HCM';
 const HCMC_WARDS = [
@@ -78,6 +79,116 @@ const getAppliedVoucherFromDraft = (subtotal) => {
   if (!code) return null;
   const result = validateVoucher(code, subtotal);
   return result.ok ? result : null;
+};
+
+const voucherValueLabel = (voucher = {}) =>
+  voucher.type === 'percent' ? `${Number(voucher.value || 0)}%` : formatPrice(Number(voucher.value || 0));
+
+const clearCheckoutVoucher = () => {
+  const { voucherCode, ...rest } = getCheckoutDraft() || {};
+  setCheckoutDraft(rest);
+};
+
+const showCheckoutVoucherModal = ({ subtotal = 0 } = {}) => {
+  document.getElementById('checkout-voucher-modal')?.remove();
+  const vouchers = getCurrentUserVouchers().filter((voucher) => voucher.active);
+  const appliedCode = (getCheckoutDraft()?.voucherCode || '').toString().toUpperCase();
+  const modal = document.createElement('div');
+  modal.className = 'modal-backdrop active';
+  modal.id = 'checkout-voucher-modal';
+  modal.setAttribute('role', 'dialog');
+  modal.setAttribute('aria-modal', 'true');
+  modal.setAttribute('aria-label', 'Áp dụng voucher');
+  modal.innerHTML = `
+    <div class="modal" style="max-width:520px">
+      <div class="modal-header">
+        <span class="modal-title">${icon('voucher')} Áp dụng voucher</span>
+        <button class="modal-close" id="checkout-voucher-close" aria-label="Đóng">${icon('close')}</button>
+      </div>
+      <div class="modal-body">
+        <div class="checkout-voucher-modal-list">
+          ${vouchers.length ? vouchers.map((voucher) => {
+            const result = validateVoucher(voucher.code, subtotal);
+            return `
+              <button class="checkout-voucher-option${voucher.code === appliedCode ? ' selected' : ''}" type="button" data-voucher-select="${escapeAttr(voucher.code)}" ${!result.ok ? 'disabled' : ''}>
+                <span>
+                  <strong>${escapeHtml(voucher.code)}</strong>
+                  <small>${escapeHtml(voucher.desc || 'Voucher của bạn')}</small>
+                  ${!result.ok ? `<em>${escapeHtml(result.msg)}</em>` : ''}
+                </span>
+                <b>${voucherValueLabel(voucher)}</b>
+              </button>
+            `;
+          }).join('') : `<div class="empty-state compact"><h3>Bạn chưa có voucher đã đổi</h3></div>`}
+        </div>
+        <div class="form-group" style="margin-top:var(--space-4)">
+          <label class="form-label" for="checkout-manual-voucher">Nhập mã voucher thủ công</label>
+          <div class="checkout-voucher-row">
+            <input class="form-control" type="text" id="checkout-manual-voucher" placeholder="Nhập mã voucher..." value="">
+            <button class="btn btn-outline btn-sm" id="checkout-manual-apply" type="button">Áp dụng</button>
+          </div>
+        </div>
+        <div class="staff-actions" style="justify-content:space-between;margin-top:var(--space-4)">
+          <button class="btn btn-primary" id="checkout-open-redeem" type="button">${icon('voucher')} Đổi voucher</button>
+          ${appliedCode ? `<button class="btn btn-outline" id="checkout-clear-voucher" type="button">Bỏ voucher</button>` : ''}
+        </div>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(modal);
+  document.body.style.overflow = 'hidden';
+  const close = () => {
+    modal.remove();
+    document.body.style.overflow = '';
+  };
+  const applyCode = (code) => {
+    const result = validateVoucher(code, subtotal);
+    if (!result.ok) {
+      toast.error(result.msg);
+      return;
+    }
+    persistCheckoutFormDraft();
+    mergeCheckoutDraft({ voucherCode: result.voucher.code });
+    toast.success(`Áp dụng voucher thành công! Giảm ${formatPrice(result.discount)}`);
+    close();
+    rerenderCheckoutPreservingScroll();
+  };
+
+  modal.querySelector('#checkout-voucher-close')?.addEventListener('click', close);
+  modal.addEventListener('click', (event) => { if (event.target === modal) close(); });
+  modal.querySelectorAll('[data-voucher-select]')?.forEach((button) => {
+    button.addEventListener('click', () => applyCode(button.dataset.voucherSelect));
+  });
+  modal.querySelector('#checkout-manual-apply')?.addEventListener('click', () => {
+    const code = (modal.querySelector('#checkout-manual-voucher')?.value || '').toString().trim();
+    if (!code) {
+      toast.info('Vui lòng nhập mã voucher.');
+      return;
+    }
+    applyCode(code);
+  });
+  modal.querySelector('#checkout-manual-voucher')?.addEventListener('keydown', (event) => {
+    if (event.key !== 'Enter') return;
+    event.preventDefault();
+    modal.querySelector('#checkout-manual-apply')?.click();
+  });
+  modal.querySelector('#checkout-clear-voucher')?.addEventListener('click', () => {
+    persistCheckoutFormDraft();
+    clearCheckoutVoucher();
+    close();
+    rerenderCheckoutPreservingScroll();
+  });
+  modal.querySelector('#checkout-open-redeem')?.addEventListener('click', () => {
+    close();
+    showRedeemVoucherModal({
+      onRedeemed: (voucher) => {
+        mergeCheckoutDraft({ voucherCode: voucher.code });
+        toast.success(`Đã tạo và áp dụng voucher ${voucher.code}.`);
+        rerenderCheckoutPreservingScroll();
+      },
+    });
+  });
 };
 
 const rerenderCheckoutPreservingScroll = () => {
@@ -160,12 +271,9 @@ export const renderCheckoutPage = () => {
               </div>
 
               <div class="checkout-voucher in-summary">
-                <label class="form-label" for="co-voucher">Voucher</label>
-                <div class="checkout-voucher-row">
-                  <input class="form-control" type="text" id="co-voucher" placeholder="Nhập mã voucher..." value="${escapeAttr(draft.voucherCode || '')}">
-                  <button class="btn btn-outline btn-sm" type="button" id="btn-apply-voucher">Áp dụng</button>
-                  <button class="btn btn-primary btn-sm" type="button" id="btn-redeem-checkout">${icon('voucher')} Đổi voucher</button>
-                </div>
+                <button class="btn btn-outline btn-block checkout-voucher-trigger" type="button" id="btn-open-voucher-modal">
+                  ${icon('voucher')} ${appliedVoucher ? `Voucher: ${escapeHtml(appliedVoucher.voucher.code)}` : 'Áp dụng voucher'}
+                </button>
                 ${appliedVoucher ? `<div class="form-hint" style="margin-top:6px">Đang áp dụng: <strong>${appliedVoucher.voucher.code}</strong></div>` : ''}
               </div>
 
@@ -298,44 +406,10 @@ export const renderCheckoutPage = () => {
     input.addEventListener('change', persistCheckoutFormDraft);
   });
 
-  section.querySelector('#btn-apply-voucher')?.addEventListener('click', (event) => {
+  section.querySelector('#btn-open-voucher-modal')?.addEventListener('click', (event) => {
     event.preventDefault();
     persistCheckoutFormDraft();
-    const code = (document.getElementById('co-voucher')?.value || '').toString().trim();
-    if (!code) {
-      const { voucherCode, ...rest } = getCheckoutDraft() || {};
-      setCheckoutDraft(rest);
-      rerenderCheckoutPreservingScroll();
-      return;
-    }
-    const result = validateVoucher(code, getCartTotal());
-    if (!result.ok) {
-      toast.error(result.msg);
-      const { voucherCode, ...rest } = getCheckoutDraft() || {};
-      setCheckoutDraft(rest);
-      rerenderCheckoutPreservingScroll();
-      return;
-    }
-    mergeCheckoutDraft({ voucherCode: result.voucher.code });
-    toast.success(`Áp dụng voucher thành công! Giảm ${formatPrice(result.discount)}`);
-    rerenderCheckoutPreservingScroll();
-  });
-
-  section.querySelector('#co-voucher')?.addEventListener('keydown', (event) => {
-    if (event.key !== 'Enter') return;
-    event.preventDefault();
-    section.querySelector('#btn-apply-voucher')?.click();
-  });
-
-  section.querySelector('#btn-redeem-checkout')?.addEventListener('click', () => {
-    persistCheckoutFormDraft();
-    showRedeemVoucherModal({
-      onRedeemed: (voucher) => {
-        mergeCheckoutDraft({ voucherCode: voucher.code });
-        toast.success(`Đã tạo và áp dụng voucher ${voucher.code}.`);
-        rerenderCheckoutPreservingScroll();
-      },
-    });
+    showCheckoutVoucherModal({ subtotal: getCartTotal() });
   });
 
   const placeOrder = async () => {

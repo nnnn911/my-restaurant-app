@@ -334,6 +334,7 @@ declare
   profile_row public.profiles%rowtype;
   required_points integer;
   voucher_code text;
+  remaining_points integer;
 begin
   if auth.uid() is null then
     raise exception 'Bạn cần đăng nhập để đổi voucher.';
@@ -384,7 +385,7 @@ begin
   update public.profiles
   set points = points - required_points
   where id = profile_row.id
-  returning profiles.points into profile_row.points;
+  returning public.profiles.points into remaining_points;
 
   return query
   select
@@ -399,7 +400,7 @@ begin
     v.source,
     v.owner_user_id,
     v.created_at,
-    profile_row.points
+    remaining_points
   from public.vouchers v
   where v.code = voucher_code;
 end;
@@ -1038,6 +1039,12 @@ on public.profiles for insert
 to authenticated
 with check ((select auth.uid()) = id);
 
+drop policy if exists "profiles_delete_owner" on public.profiles;
+create policy "profiles_delete_owner"
+on public.profiles for delete
+to authenticated
+using (public.is_owner() and role = 'customer');
+
 drop policy if exists "menu_public_read_visible" on public.menu_items;
 create policy "menu_public_read_visible"
 on public.menu_items for select
@@ -1221,7 +1228,7 @@ grant select on table public.menu_items to anon, authenticated;
 grant select on table public.vouchers to anon, authenticated;
 
 -- Authenticated access (RLS policies still restrict rows/ops)
-grant select, insert, update on table public.profiles to authenticated;
+grant select, insert, update, delete on table public.profiles to authenticated;
 grant select, insert, update, delete on table public.menu_items to authenticated;
 grant select, insert, update, delete on table public.vouchers to authenticated;
 grant select, insert, update, delete on table public.user_vouchers to authenticated;

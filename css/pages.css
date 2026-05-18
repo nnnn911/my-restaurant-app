@@ -240,6 +240,58 @@
   flex-shrink: 0;
 }
 
+.checkout-voucher-trigger {
+  justify-content: center;
+}
+
+.checkout-voucher-modal-list {
+  display: grid;
+  gap: var(--space-2);
+  max-height: 260px;
+  overflow: auto;
+}
+
+.checkout-voucher-option {
+  width: 100%;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  border-radius: var(--radius-md);
+  padding: var(--space-3);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  text-align: left;
+  cursor: pointer;
+}
+
+.checkout-voucher-option.selected,
+.checkout-voucher-option:hover:not(:disabled) {
+  border-color: var(--color-primary-500);
+  box-shadow: 0 0 0 3px rgba(45,125,53,0.12);
+}
+
+.checkout-voucher-option:disabled {
+  opacity: 0.58;
+  cursor: not-allowed;
+}
+
+.checkout-voucher-option span {
+  display: grid;
+  gap: 2px;
+}
+
+.checkout-voucher-option small,
+.checkout-voucher-option em {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+}
+
+.checkout-voucher-option b {
+  color: var(--color-primary-700);
+  white-space: nowrap;
+}
+
 .checkout-paybar {
   background: transparent;
   border-top: 1px solid var(--color-border);
@@ -3243,8 +3295,8 @@ input[type="number"] {
   width: min(100%, 560px);
   transform: translateX(-50%);
   display: grid;
-  grid-template-columns: minmax(52px, 30%) minmax(0, 70%);
-  gap: 0;
+  grid-template-columns: minmax(48px, 18%) minmax(0, 1fr);
+  gap: var(--space-2);
   padding: var(--space-3) var(--space-4) calc(var(--space-3) + env(safe-area-inset-bottom));
   background: rgba(255,255,255,0.96);
   border-top: 1px solid var(--color-border);
@@ -3266,8 +3318,8 @@ input[type="number"] {
 }
 
 .shipper-fail-btn {
-  width: 52px;
-  min-width: 52px;
+  width: 48px;
+  min-width: 48px;
   height: 52px;
   justify-self: start;
   border-radius: var(--radius-full);
