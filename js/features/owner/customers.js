@@ -13,6 +13,7 @@ import {
   scheduleRenderPage,
   rerenderOwnerPage,
   formatDate,
+  updateUserPointsOnline,
   saveUsers,
   icon,
   openStaffConfirm,
@@ -193,7 +194,7 @@ const openCustomerPointsMenu = (user) => {
   });
   document.getElementById('points-close')?.addEventListener('click', close);
   document.getElementById('points-cancel')?.addEventListener('click', close);
-  document.getElementById('points-save')?.addEventListener('click', () => {
+  document.getElementById('points-save')?.addEventListener('click', async () => {
     const value = Math.max(0, Number(document.getElementById('points-value')?.value || 0));
     const mode = document.getElementById('points-mode')?.value || 'add';
     const users = getOwnerData().users;
@@ -201,12 +202,18 @@ const openCustomerPointsMenu = (user) => {
     if (idx === -1) return;
     const current = Number(users[idx].points || 0);
     const nextPoints = mode === 'set' ? value : mode === 'subtract' ? Math.max(0, current - value) : current + value;
-    users[idx] = { ...users[idx], points: nextPoints };
-    saveUsers(users);
-    invalidateOwnerData();
-    toast.success('Đã cập nhật điểm khách hàng.');
-    close();
-    rerenderOwnerPage();
+    const saveBtn = document.getElementById('points-save');
+    saveBtn.disabled = true;
+    try {
+      users[idx] = await updateUserPointsOnline(user.id, nextPoints);
+      invalidateOwnerData();
+      toast.success('Đã cập nhật điểm khách hàng.');
+      close();
+      rerenderOwnerPage();
+    } catch (error) {
+      toast.error(error?.message || 'Không thể cập nhật điểm khách hàng.');
+      saveBtn.disabled = false;
+    }
   });
 
   requestAnimationFrame(() => drawer.classList.add('active'));

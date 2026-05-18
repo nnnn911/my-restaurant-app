@@ -424,6 +424,25 @@
 }
 
 @media (max-width: 768px) {
+  .checkout-paybar:not(.checkout-paybar--docked) {
+    background: var(--color-surface);
+    border-top: 1px solid var(--color-border);
+    padding: var(--space-3) 0;
+  }
+
+  .checkout-paybar:not(.checkout-paybar--docked) .checkout-paybar-container {
+    padding: 0 var(--space-4);
+  }
+
+  .checkout-paybar:not(.checkout-paybar--docked) .checkout-paybar-amount {
+    order: 1;
+    text-align: left;
+  }
+
+  .checkout-paybar:not(.checkout-paybar--docked) .btn {
+    order: 2;
+  }
+
   .checkout-section {
     min-height: calc(100vh - var(--navbar-height-mobile));
     min-height: calc(100svh - var(--navbar-height-mobile));
@@ -1214,6 +1233,10 @@
 
 #owner-create-drawer .owner-drawer-panel {
   width: min(720px, 100vw);
+}
+
+.staff-preorder-create-panel {
+  width: min(560px, 100vw);
 }
 
 .owner-drawer-backdrop.active .owner-drawer-panel {
@@ -3221,7 +3244,7 @@ input[type="number"] {
   transform: translateX(-50%);
   display: grid;
   grid-template-columns: minmax(52px, 30%) minmax(0, 70%);
-  gap: var(--space-3);
+  gap: 0;
   padding: var(--space-3) var(--space-4) calc(var(--space-3) + env(safe-area-inset-bottom));
   background: rgba(255,255,255,0.96);
   border-top: 1px solid var(--color-border);
@@ -3235,6 +3258,11 @@ input[type="number"] {
   padding-right: var(--space-3);
   white-space: normal;
   line-height: 1.25;
+  width: 100%;
+}
+
+.shipper-action-bar .shipper-success-btn:only-child {
+  grid-column: 1 / -1;
 }
 
 .shipper-fail-btn {

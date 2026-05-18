@@ -135,7 +135,7 @@ const createPosOrder = async ({ staff, cart, payment }) => {
   window.dispatchEvent(new CustomEvent('menu:updated'));
 
   clearPosCart();
-  setPosDraft({ ...snapshot, payment, note: '', discountType: 'amount', discountValue: 0 });
+  resetPosOrderDraft(snapshot);
   toast.success(`Tạo đơn thành công: ${order.id}`);
   showPosSuccess(order);
   updatePosCartUI();
@@ -357,13 +357,26 @@ const updatePosMenuUI = (query = null) => {
     </article>
   `).join('');
 
+  const addCardItem = (id) => {
+    const item = (menu || []).find((m) => m.id === id);
+    if (!item || item.status !== 'available') return;
+    capturePosDraftFromDom();
+    addToPosCart(item);
+  };
+
+  grid.querySelectorAll('.menu-item-card')?.forEach((card) => {
+    card.addEventListener('click', () => addCardItem(card.dataset.id));
+    card.addEventListener('keydown', (event) => {
+      if (event.key !== 'Enter' && event.key !== ' ') return;
+      event.preventDefault();
+      addCardItem(card.dataset.id);
+    });
+  });
+
   grid.querySelectorAll('[data-add]')?.forEach((btn) => {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
-      const item = (menu || []).find((m) => m.id === btn.dataset.add);
-      if (!item) return;
-      capturePosDraftFromDom();
-      addToPosCart(item);
+      addCardItem(btn.dataset.add);
     });
   });
 };
@@ -516,6 +529,19 @@ const setPosDraft = (next) => {
     discountValue: Number(safe.discountValue || 0),
     updatedAt: new Date().toISOString(),
   });
+};
+
+const resetPosOrderDraft = (base = getPosDraft()) => {
+  setPosDraft({
+    ...base,
+    customerName: '',
+    phone: '',
+    payment: 'cash',
+    note: '',
+    discountType: 'amount',
+    discountValue: 0,
+  });
+  updatePosCustomerSummaryUI();
 };
 
 const capturePosDraftFromDom = () => {
@@ -762,8 +788,7 @@ const renderPos = () => {
     if (!ok) return;
     const currentDraft = getPosDraft();
     clearPosCart();
-    setPosDraft({ ...currentDraft, customerName: '', phone: '', payment: 'cash', note: '', discountType: 'amount', discountValue: 0 });
-    updatePosCustomerSummaryUI();
+    resetPosOrderDraft(currentDraft);
     updatePosCartUI();
     updatePosFilterUI();
     updatePosMenuUI();

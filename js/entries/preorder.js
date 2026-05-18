@@ -1,30 +1,18 @@
 import { initNavbar, updateCartBadge } from '../ui/navbar.js';
 import { toast } from '../ui/toast.js';
 import { renderFooter } from '../ui/footer.js';
-import { createReservationOnline, formatPrice, getCurrentUser, getMenu, hydrateOnlineData } from '../data/store.js';
+import { createReservationOnline, formatPrice, getCurrentUser, hydrateOnlineData } from '../data/store.js';
 import { icon } from '../ui/icons.js';
 import { openAuthModal } from '../features/customer/auth.js';
 import { bindSegmentedDateTimeInputs, getDateTimeValue, segmentedDateTimeInput } from '../ui/datetime.js';
 
 const PREORDER_TYPES = [
-  { id: "ga-nguyen-con", label: "Gà nguyên con", category: "ga" },
-  { id: "vit-nguyen-con", label: "Vịt nguyên con", category: "vit" },
+  { id: "ga-nguyen-con", label: "Gà nguyên con", price: 290000 },
+  { id: "vit-nguyen-con", label: "Vịt nguyên con", price: 390000 },
 ];
 
 const getPreorderPriceMap = () => {
-  const menu = getMenu();
-  const maxByCategory = (cat) => {
-    const prices = (menu || [])
-      .filter((m) => m?.category === cat)
-      .map((m) => Number(m?.price || 0))
-      .filter((p) => Number.isFinite(p) && p > 0);
-    return prices.length ? Math.max(...prices) : 0;
-  };
-
-  return {
-    "ga-nguyen-con": maxByCategory("ga"),
-    "vit-nguyen-con": maxByCategory("vit"),
-  };
+  return Object.fromEntries(PREORDER_TYPES.map((item) => [item.id, item.price]));
 };
 
 const showPreorderSuccess = ({ reservation, itemLabel, neededDateText, totalText }) => {

@@ -688,5 +688,35 @@ body:has(.page-content--staff) .toast {
   font-size: var(--font-size-sm);
   color: var(--color-text);
 }
+.search-bar input[type="search"]::-webkit-search-cancel-button,
+.search-bar input[type="search"]::-webkit-search-decoration {
+  appearance: none;
+  -webkit-appearance: none;
+}
 .search-bar input::placeholder { color: var(--color-text-light); }
 .search-bar .search-icon { color: var(--color-text-muted); }
+.search-clear-btn {
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: var(--radius-full);
+  background: var(--color-beige-100);
+  color: var(--color-text-muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+.search-clear-btn .app-icon {
+  width: 14px;
+  height: 14px;
+}
+.search-clear-btn:hover {
+  background: var(--color-danger);
+  color: var(--color-white);
+}
+.search-clear-btn[hidden] {
+  display: none;
+}

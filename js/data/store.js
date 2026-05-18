@@ -319,13 +319,14 @@ export const hydrateOnlineData = async () => {
       nextDb.currentUserId = profile.id;
     }
 
-    const [menu, vouchers, orders, reservations, cart, users] = await Promise.all([
+    const [menu, vouchers, orders, reservations, cart, users, userVoucherCodes] = await Promise.all([
       remoteDataService.getMenu().catch(() => null),
       remoteDataService.getVouchers().catch(() => null),
       remoteDataService.getOrders().catch(() => null),
       remoteDataService.getReservations().catch(() => null),
       profile?.role === 'customer' ? remoteDataService.getCart().catch(() => null) : Promise.resolve(null),
       ['owner', 'staff'].includes(profile?.role) ? remoteDataService.getUsers().catch(() => null) : Promise.resolve(null),
+      profile?.role === 'customer' ? remoteDataService.getCurrentUserVoucherCodes().catch(() => null) : Promise.resolve(null),
     ]);
 
     if (Array.isArray(menu)) nextDb.menu = menu;
@@ -335,6 +336,18 @@ export const hydrateOnlineData = async () => {
     if (Array.isArray(users)) nextDb.users = users.map((user) => sanitizeUser(user, user.id));
     if (profile?.role === 'customer' && Array.isArray(cart)) {
       nextDb.carts = { ...(nextDb.carts || {}), [profile.id]: cart };
+    }
+    if (profile?.role === 'customer' && Array.isArray(userVoucherCodes)) {
+      const allUsers = Array.isArray(nextDb.users) ? [...nextDb.users] : [];
+      const idx = allUsers.findIndex((user) => user.id === profile.id);
+      const nextUser = sanitizeUser({
+        ...(idx >= 0 ? allUsers[idx] : profile),
+        vouchers: userVoucherCodes,
+      }, profile.id);
+      if (idx >= 0) allUsers[idx] = nextUser;
+      else allUsers.push(nextUser);
+      nextDb.users = allUsers;
+      nextDb.currentUserId = profile.id;
     }
 
     nextDb.meta = {
@@ -393,6 +406,23 @@ const setUsersToDb = (users) => {
 /* ---- Users ---- */
 export const getUsers = () => getUsersFromDb();
 export const saveUsers = (users) => setUsersToDb(users);
+
+export const updateUserPointsOnline = async (userId, points) => {
+  const db = ensureDb();
+  const users = sanitizeUsers(db.users || []);
+  const idx = users.findIndex((user) => user.id === userId);
+  if (idx === -1) throw new Error('Không tìm thấy tài khoản khách hàng.');
+
+  let updated = sanitizeUser({ ...users[idx], points: Math.max(0, Number(points || 0)) }, users[idx].id);
+  if (shouldUseRemote()) {
+    updated = await remoteDataService.updateUserPoints(userId, updated.points);
+  }
+
+  users[idx] = sanitizeUser({ ...users[idx], ...updated }, userId);
+  const nextDb = saveDb({ ...db, users });
+  if (nextDb.currentUserId === userId) saveCurrentUser(users[idx]);
+  return users[idx];
+};
 
 export const getCurrentUser = () => {
   const db = ensureDb();
@@ -708,10 +738,16 @@ export const saveVouchers = (vouchers) => {
 };
 
 export const validateVoucher = (code, orderTotal) => {
+  const normalizedCode = (code || '').toString().trim().toUpperCase();
   const vouchers = getVouchers();
-  const v = vouchers.find(v => v.code === code.toUpperCase());
+  const v = vouchers.find(v => v.code === normalizedCode);
   if (!v) return { ok: false, msg: 'Mã voucher không tồn tại.' };
   if (!v.active) return { ok: false, msg: 'Mã voucher đã hết hạn.' };
+  if (v.source === 'rewards' || v.userId) {
+    const user = getCurrentUser();
+    const owned = new Set((user?.vouchers || []).map((item) => (item || '').toString().toUpperCase()));
+    if (!owned.has(normalizedCode)) return { ok: false, msg: 'Voucher này chỉ dùng được cho tài khoản đã đổi.' };
+  }
   const now = new Date();
   const startsAt = v.startsAt ? new Date(v.startsAt) : null;
   const expiresAt = v.expiresAt ? new Date(v.expiresAt) : null;
@@ -749,7 +785,7 @@ export const getCurrentUserVouchers = () => {
   return getVouchers().filter((voucher) => owned.has((voucher.code || '').toString().toUpperCase()));
 };
 
-export const redeemPointsForVoucher = (amount) => {
+const redeemPointsForVoucherLocal = (amount) => {
   const value = Number(amount || 0);
   const user = getCurrentUser();
   if (!user) return { ok: false, msg: 'Vui lòng đăng nhập để đổi voucher.' };
@@ -793,6 +829,45 @@ export const redeemPointsForVoucher = (amount) => {
   runRemoteSync(() => remoteDataService.saveVouchers([...vouchers, voucher]));
   saveCurrentUser(nextUser);
   return { ok: true, voucher, user: nextUser, pointsSpent: requiredPoints };
+};
+
+export const redeemPointsForVoucher = async (amount) => {
+  if (!shouldUseRemote()) return redeemPointsForVoucherLocal(amount);
+
+  const value = Number(amount || 0);
+  const user = getCurrentUser();
+  if (!user) return { ok: false, msg: 'Vui lòng đăng nhập để đổi voucher.' };
+  if (!Number.isFinite(value) || value <= 0 || value % 1000 !== 0) {
+    return { ok: false, msg: 'Mệnh giá voucher phải là bội số của 1.000đ.' };
+  }
+  const requiredPoints = value / 1000;
+  if (Number(user.points || 0) < requiredPoints) {
+    return { ok: false, msg: `Bạn cần ${requiredPoints.toLocaleString('vi-VN')} điểm để đổi voucher này.` };
+  }
+
+  try {
+    const result = await remoteDataService.redeemPointsForVoucher(value);
+    const voucher = normalizeVoucher(result.voucher);
+    const users = getUsers();
+    const userIdx = users.findIndex((item) => item.id === user.id);
+    if (userIdx === -1) throw new Error('Không tìm thấy tài khoản khách hàng.');
+    const nextUser = sanitizeUser({
+      ...users[userIdx],
+      points: Number(result.points || 0),
+      vouchers: Array.from(new Set([...(users[userIdx].vouchers || []), voucher.code])),
+    }, users[userIdx].id);
+    users[userIdx] = nextUser;
+    const vouchers = getVouchers();
+    saveDb({
+      ...ensureDb(),
+      users: sanitizeUsers(users),
+      vouchers: [...vouchers.filter((item) => item.code !== voucher.code), voucher],
+    });
+    saveCurrentUser(nextUser);
+    return { ok: true, voucher, user: nextUser, pointsSpent: requiredPoints };
+  } catch (error) {
+    return { ok: false, msg: error?.message || 'Không thể đổi voucher.' };
+  }
 };
 
 /* ---- Menu ---- */

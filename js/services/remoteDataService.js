@@ -264,6 +264,55 @@ export const remoteDataService = {
     if (error) throw error;
   },
 
+  async updateUserPoints(publicCode, points) {
+    const client = requireSupabase();
+    const nextPoints = Math.max(0, Number(points || 0));
+    const { data, error } = await client
+      .from('profiles')
+      .update({ points: nextPoints })
+      .eq('public_code', publicCode)
+      .eq('role', 'customer')
+      .select('*')
+      .single();
+    if (error) throw error;
+    return mapProfile(data);
+  },
+
+  async getCurrentUserVoucherCodes() {
+    const client = requireSupabase();
+    const profile = await this.getCurrentProfile();
+    if (!profile?.authId) return [];
+    const { data, error } = await client
+      .from('user_vouchers')
+      .select('voucher_code')
+      .eq('user_id', profile.authId);
+    if (error) throw error;
+    return (data || []).map((row) => (row.voucher_code || '').toString().toUpperCase()).filter(Boolean);
+  },
+
+  async redeemPointsForVoucher(amount) {
+    const client = requireSupabase();
+    const { data, error } = await client.rpc('redeem_points_for_voucher', { voucher_amount: Number(amount || 0) });
+    if (error) throw error;
+    const row = Array.isArray(data) ? data[0] : data;
+    return {
+      voucher: mapVoucher({
+        code: row?.code,
+        type: row?.type,
+        value: row?.value,
+        min_order: row?.min_order,
+        description: row?.description,
+        active: row?.active,
+        starts_at: row?.starts_at,
+        expires_at: row?.expires_at,
+        source: row?.source,
+        owner_user_id: row?.owner_user_id,
+        created_at: row?.created_at,
+      }),
+      points: Number(row?.points || 0),
+    };
+  },
+
   async waitForCurrentProfile({ retries = 8, delayMs = 250 } = {}) {
     let lastError = null;
     for (let attempt = 0; attempt < retries; attempt += 1) {

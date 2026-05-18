@@ -39,6 +39,11 @@ const TABS = [
   { id: 'all', label: 'Tất cả' },
 ];
 
+const STAFF_PREORDER_ITEMS = [
+  { type: 'ga-nguyen-con', itemName: 'Gà nguyên con', price: 290000 },
+  { type: 'vit-nguyen-con', itemName: 'Vịt nguyên con', price: 390000 },
+];
+
 let tabId = 'need';
 let searchQuery = '';
 let statusFilter = 'all';
@@ -334,18 +339,18 @@ const renderReservationList = (listEl, rows) => {
 const openCreatePreorderModal = () => {
   document.getElementById('staff-create-preorder-modal')?.remove();
   const modal = document.createElement('div');
-  modal.className = 'modal-backdrop active';
+  modal.className = 'staff-profile-backdrop owner-drawer-backdrop';
   modal.id = 'staff-create-preorder-modal';
   modal.setAttribute('role', 'dialog');
   modal.setAttribute('aria-modal', 'true');
   modal.innerHTML = `
-    <div class="modal" style="max-width:560px">
-      <div class="modal-header">
-        <span class="modal-title">${icon('reservation')} Tạo preorder</span>
+    <aside class="staff-profile-panel owner-drawer-panel staff-preorder-create-panel">
+      <div class="staff-profile-header">
+        <div class="staff-profile-title">${icon('reservation')} Tạo preorder</div>
         <button class="modal-close" type="button" data-close aria-label="Đóng">${icon('close')}</button>
       </div>
       <form id="staff-create-preorder-form" novalidate>
-        <div class="modal-body">
+        <div class="staff-profile-body">
           <div class="form-group">
             <label class="form-label" for="new-preorder-name">Tên khách</label>
             <input class="form-control" id="new-preorder-name" required>
@@ -356,7 +361,13 @@ const openCreatePreorderModal = () => {
           </div>
           <div class="form-group">
             <label class="form-label" for="new-preorder-item">Món đặt trước</label>
-            <input class="form-control" id="new-preorder-item" placeholder="Gà nguyên con" required>
+            <select class="form-control" id="new-preorder-item" required>
+              ${STAFF_PREORDER_ITEMS.map((item) => `
+                <option value="${escapeAttr(item.type)}" data-price="${item.price}" data-name="${escapeAttr(item.itemName)}">
+                  ${escapeHtml(item.itemName)} - ${formatPrice(item.price)}
+                </option>
+              `).join('')}
+            </select>
           </div>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-3)">
             <div class="form-group">
@@ -365,7 +376,7 @@ const openCreatePreorderModal = () => {
             </div>
             <div class="form-group">
               <label class="form-label" for="new-preorder-price">Đơn giá</label>
-              <input class="form-control" id="new-preorder-price" type="number" min="0" value="0" required>
+              <input class="form-control" id="new-preorder-price" type="text" value="${formatPrice(STAFF_PREORDER_ITEMS[0].price)}" readonly>
             </div>
           </div>
           <div class="form-group">
@@ -377,18 +388,19 @@ const openCreatePreorderModal = () => {
             <textarea class="form-control" id="new-preorder-note" rows="3"></textarea>
           </div>
           <div id="staff-create-preorder-error" class="form-error" style="display:none"></div>
-        </div>
-        <div class="modal-footer">
+          <div class="staff-actions">
           <button class="btn btn-outline" type="button" data-close>Thoát</button>
           <button class="btn btn-primary" type="submit">Tạo đơn</button>
+          </div>
         </div>
       </form>
-    </div>
+    </aside>
   `;
 
   const close = () => {
-    modal.remove();
+    modal.classList.remove('active');
     document.body.style.overflow = '';
+    setTimeout(() => modal.remove(), 180);
   };
 
   document.body.appendChild(modal);
@@ -397,16 +409,24 @@ const openCreatePreorderModal = () => {
   modal.addEventListener('click', (event) => {
     if (event.target === modal) close();
   });
+  modal.querySelector('#new-preorder-item')?.addEventListener('change', (event) => {
+    const option = event.target.selectedOptions?.[0];
+    const price = Number(option?.dataset.price || STAFF_PREORDER_ITEMS[0].price);
+    const priceInput = modal.querySelector('#new-preorder-price');
+    if (priceInput) priceInput.value = formatPrice(price);
+  });
   modal.querySelector('#staff-create-preorder-form')?.addEventListener('submit', async (event) => {
     event.preventDefault();
     const err = modal.querySelector('#staff-create-preorder-error');
     const name = modal.querySelector('#new-preorder-name')?.value.trim() || '';
     const phone = modal.querySelector('#new-preorder-phone')?.value.trim() || '';
-    const itemName = modal.querySelector('#new-preorder-item')?.value.trim() || '';
+    const option = modal.querySelector('#new-preorder-item')?.selectedOptions?.[0];
+    const type = option?.value || '';
+    const itemName = option?.dataset.name || option?.textContent?.trim() || '';
     const qty = Number(modal.querySelector('#new-preorder-qty')?.value || 1);
-    const price = Number(modal.querySelector('#new-preorder-price')?.value || 0);
+    const price = Number(option?.dataset.price || 0);
     const date = modal.querySelector('#new-preorder-date')?.value || '';
-    if (!name || !phone || !itemName || !date || !Number.isFinite(qty) || qty <= 0 || !Number.isFinite(price) || price < 0) {
+    if (!name || !phone || !type || !itemName || !date || !Number.isFinite(qty) || qty <= 0 || !Number.isFinite(price) || price <= 0) {
       err.textContent = 'Vui lòng nhập đầy đủ thông tin hợp lệ.';
       err.style.display = 'flex';
       return;
@@ -415,7 +435,7 @@ const openCreatePreorderModal = () => {
       const reservation = await createReservationOnline({
         name,
         phone,
-        type: 'preorder',
+        type,
         itemName,
         qty,
         price,
@@ -434,6 +454,7 @@ const openCreatePreorderModal = () => {
       err.style.display = 'flex';
     }
   });
+  requestAnimationFrame(() => modal.classList.add('active'));
 };
 
 const renderPage = () => {
@@ -472,7 +493,7 @@ const renderPage = () => {
         <section class="staff-panel" aria-label="Chi tiết đơn đặt trước">
           <div class="staff-panel-header">
             <div class="staff-panel-title">${icon('reservation')} Chi tiết</div>
-            <button class="btn btn-primary btn-sm" id="create-preorder" type="button">${icon('addpeople')} Tạo preorder</button>
+            <button class="btn btn-primary btn-sm" id="create-preorder" type="button">${icon('pen')} Tạo mới</button>
           </div>
           <div class="staff-panel-body" id="res-detail"></div>
         </section>

@@ -6,6 +6,7 @@ import { getCurrentStaff } from './auth.js';
 import { icon } from '../../ui/icons.js';
 import { openStaffConfirm } from '../../ui/confirm.js';
 import { escapeHtml } from '../../core/html.js';
+import { observeSearchClears } from '../../ui/searchClear.js';
 
 const getInitials = (name) => {
   const n = (name || '').toString().trim();
@@ -151,4 +152,5 @@ export const openStaffProfileModal = ({ onLogout } = {}) => {
 
 export const bindStaffChrome = ({ onLogout } = {}) => {
   document.getElementById('staff-open-profile')?.addEventListener('click', () => openStaffProfileModal({ onLogout }));
+  observeSearchClears();
 };

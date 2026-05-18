@@ -108,16 +108,19 @@ export const showRedeemVoucherModal = ({ onRedeemed } = {}) => {
   modal.querySelector('#redeem-close')?.addEventListener('click', close);
   modal.addEventListener('click', (event) => { if (event.target === modal) close(); });
 
-  modal.querySelector('#redeem-form')?.addEventListener('submit', (event) => {
+  modal.querySelector('#redeem-form')?.addEventListener('submit', async (event) => {
     event.preventDefault();
     const error = modal.querySelector('#redeem-error');
     const resultBox = modal.querySelector('#redeem-result');
     const amount = Number(modal.querySelector('#redeem-amount')?.value || 0);
-    const result = redeemPointsForVoucher(amount);
+    const submitBtn = modal.querySelector('#redeem-form button[type="submit"]');
+    submitBtn.disabled = true;
+    const result = await redeemPointsForVoucher(amount);
     if (!result.ok) {
       error.textContent = result.msg;
       error.style.display = 'flex';
       resultBox.style.display = 'none';
+      submitBtn.disabled = false;
       return;
     }
 

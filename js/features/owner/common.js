@@ -6,6 +6,7 @@ import {
   getUsers,
   getVouchers,
   saveMenu,
+  updateUserPointsOnline,
   saveUsers,
   saveVouchers,
 } from '../../data/store.js';
@@ -198,4 +199,4 @@ export const scheduleRenderPage = () => {
   searchRenderTimer = window.setTimeout(rerenderOwnerPage, 180);
 };
 
-export { formatDate, formatPrice, getMenu, getOrders, getUsers, getVouchers, saveMenu, saveUsers, saveVouchers, icon, openStaffConfirm, escapeAttr, escapeHtml };
+export { formatDate, formatPrice, getMenu, getOrders, getUsers, getVouchers, saveMenu, updateUserPointsOnline, saveUsers, saveVouchers, icon, openStaffConfirm, escapeAttr, escapeHtml };

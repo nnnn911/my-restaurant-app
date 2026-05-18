@@ -311,6 +311,100 @@ begin
 end;
 $$;
 
+create or replace function public.redeem_points_for_voucher(voucher_amount integer)
+returns table (
+  code text,
+  type text,
+  value integer,
+  min_order integer,
+  description text,
+  active boolean,
+  starts_at timestamptz,
+  expires_at timestamptz,
+  source text,
+  owner_user_id uuid,
+  created_at timestamptz,
+  points integer
+)
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  profile_row public.profiles%rowtype;
+  required_points integer;
+  voucher_code text;
+begin
+  if auth.uid() is null then
+    raise exception 'Bạn cần đăng nhập để đổi voucher.';
+  end if;
+
+  if voucher_amount is null or voucher_amount <= 0 or voucher_amount % 1000 <> 0 then
+    raise exception 'Mệnh giá voucher phải là bội số của 1.000đ.';
+  end if;
+
+  required_points := voucher_amount / 1000;
+
+  select *
+  into profile_row
+  from public.profiles
+  where id = auth.uid() and role = 'customer'
+  for update;
+
+  if not found then
+    raise exception 'Không tìm thấy tài khoản khách hàng.';
+  end if;
+
+  if profile_row.points < required_points then
+    raise exception 'Bạn không đủ điểm để đổi voucher.';
+  end if;
+
+  loop
+    voucher_code := 'RW' || upper(substr(replace(gen_random_uuid()::text, '-', ''), 1, 8));
+    exit when not exists (select 1 from public.vouchers existing where existing.code = voucher_code);
+  end loop;
+
+  insert into public.vouchers (
+    code, type, value, min_order, description, active, source, owner_user_id
+  )
+  values (
+    voucher_code,
+    'fixed',
+    voucher_amount,
+    0,
+    'Voucher đổi từ ' || required_points::text || ' điểm thưởng',
+    true,
+    'rewards',
+    profile_row.id
+  );
+
+  insert into public.user_vouchers (user_id, voucher_code)
+  values (profile_row.id, voucher_code);
+
+  update public.profiles
+  set points = points - required_points
+  where id = profile_row.id
+  returning profiles.points into profile_row.points;
+
+  return query
+  select
+    v.code,
+    v.type,
+    v.value,
+    v.min_order,
+    v.description,
+    v.active,
+    v.starts_at,
+    v.expires_at,
+    v.source,
+    v.owner_user_id,
+    v.created_at,
+    profile_row.points
+  from public.vouchers v
+  where v.code = voucher_code;
+end;
+$$;
+
 create or replace function public.handle_new_auth_user()
 returns trigger
 language plpgsql
@@ -374,6 +468,7 @@ declare
   order_id text;
   order_total integer;
   order_points integer;
+  requested_voucher text;
   item jsonb;
   created_order public.orders;
 begin
@@ -390,6 +485,21 @@ begin
 
   order_total := greatest(coalesce((payload ->> 'total')::integer, 0), 0);
   order_points := public.calculate_order_points(order_total);
+  requested_voucher := nullif(payload ->> 'voucherCode', '');
+
+  if requested_voucher is not null and exists (
+    select 1
+    from public.vouchers v
+    where v.code = requested_voucher
+      and (v.source = 'rewards' or v.owner_user_id is not null)
+      and not exists (
+        select 1
+        from public.user_vouchers uv
+        where uv.user_id = auth.uid() and uv.voucher_code = requested_voucher
+      )
+  ) then
+    raise exception 'Voucher này chỉ dùng được cho tài khoản đã đổi.';
+  end if;
 
   insert into public.orders (
     id,
@@ -422,7 +532,7 @@ begin
     greatest(coalesce((payload ->> 'subtotal')::integer, 0), 0),
     greatest(coalesce((payload ->> 'discount')::integer, 0), 0),
     order_total,
-    nullif(payload ->> 'voucherCode', ''),
+    requested_voucher,
     'order',
     coalesce(nullif(payload ->> 'status', ''), 'pending'),
     order_points,
@@ -945,7 +1055,16 @@ drop policy if exists "vouchers_public_read_active" on public.vouchers;
 create policy "vouchers_public_read_active"
 on public.vouchers for select
 to anon, authenticated
-using (active = true or public.is_staff_or_owner());
+using (
+  public.is_staff_or_owner()
+  or (
+    active = true
+    and (
+      (coalesce(source, '') <> 'rewards' and owner_user_id is null)
+      or owner_user_id = (select auth.uid())
+    )
+  )
+);
 
 drop policy if exists "vouchers_owner_write" on public.vouchers;
 create policy "vouchers_owner_write"
@@ -1087,3 +1206,35 @@ on public.app_sequences for all
 to authenticated
 using (public.is_owner())
 with check (public.is_owner());
+
+-- ------------------------------------------------------------
+-- Grants (required in addition to RLS policies)
+-- ------------------------------------------------------------
+-- Supabase roles used by PostgREST: anon/authenticated/service_role.
+-- If these grants are missing, queries can fail with:
+--   "permission denied for table <table_name>"
+
+grant usage on schema public to anon, authenticated, service_role;
+
+-- Readable without login
+grant select on table public.menu_items to anon, authenticated;
+grant select on table public.vouchers to anon, authenticated;
+
+-- Authenticated access (RLS policies still restrict rows/ops)
+grant select, insert, update on table public.profiles to authenticated;
+grant select, insert, update, delete on table public.menu_items to authenticated;
+grant select, insert, update, delete on table public.vouchers to authenticated;
+grant select, insert, update, delete on table public.user_vouchers to authenticated;
+grant select, insert, update, delete on table public.carts to authenticated;
+grant select, insert, update, delete on table public.cart_items to authenticated;
+grant select, insert, update, delete on table public.orders to authenticated;
+grant select, insert, update, delete on table public.order_items to authenticated;
+grant select, insert, update, delete on table public.pos_orders to authenticated;
+grant select, insert, update, delete on table public.pos_order_items to authenticated;
+grant select, insert, update, delete on table public.reservations to authenticated;
+grant select, insert, update, delete on table public.app_sequences to authenticated;
+
+grant execute on function public.redeem_points_for_voucher(integer) to authenticated;
+
+-- Safe defaults for any sequences (if present)
+grant usage, select on all sequences in schema public to authenticated;

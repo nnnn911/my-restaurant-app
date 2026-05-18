@@ -162,7 +162,14 @@ const renderShipperNavbar = () => {
 
   document.getElementById('hamburger-btn')?.addEventListener('click', toggleMobileNav);
   document.getElementById('mobile-nav-overlay')?.addEventListener('click', closeMobileNav);
-  document.getElementById('m-btn-logout')?.addEventListener('click', () => {
+  document.getElementById('m-btn-logout')?.addEventListener('click', async () => {
+    const ok = await showConfirmModal({
+      title: 'Đăng xuất',
+      message: 'Bạn có chắc muốn đăng xuất khỏi tài khoản shipper?',
+      confirmText: 'Đăng xuất',
+      danger: true,
+    });
+    if (!ok) return;
     logoutShipper();
     toast.success('Đã đăng xuất.');
     window.location.href = 'shipper.html';
@@ -274,6 +281,7 @@ const renderActiveList = () => {
 
 const renderHistory = () => {
   const orders = getHistoryOrders();
+  const activeCount = getShippingOrders().length;
   return `
     <section class="shipper-screen" aria-label="Lịch sử đơn hàng">
       <div class="shipper-screen-header">
@@ -281,7 +289,7 @@ const renderHistory = () => {
           <h1>Lịch sử đơn hàng</h1>
           <p>Các đơn đã giao</p>
         </div>
-        <a class="btn btn-outline btn-sm" href="shipper.html">Trở về đơn cần giao</a>
+        <a class="btn btn-outline btn-sm" href="shipper.html">Trở về đơn cần giao (${activeCount})</a>
       </div>
       ${orders.length ? `
         <div class="shipper-order-list">

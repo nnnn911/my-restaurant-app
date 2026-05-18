@@ -6,6 +6,8 @@ import { openAuthModal } from '../features/customer/auth.js';
 import { openCart } from '../features/customer/cart.js';
 import { scrollToElementWithOffset } from './scroll.js';
 import { icon } from './icons.js';
+import { observeSearchClears } from './searchClear.js';
+import { openStaffConfirm } from './confirm.js';
 
 const NAV_ITEMS = [
   { id: 'order',    label: 'Đặt đồ ăn', href: 'index.html#menu' },
@@ -20,6 +22,7 @@ let activeNav = null;
 export const initNavbar = (options = {}) => {
   renderNavbar();
   bindNavbarEvents();
+  observeSearchClears();
 };
 
 export const setActiveNav = (navId) => {
@@ -117,8 +120,14 @@ export const updateNavbarUser = () => {
         closeMobileNav();
         window.location.href = 'rewards.html';
       });
-      document.getElementById('m-btn-logout')?.addEventListener('click', () => {
-        const ok = window.confirm('Bạn có chắc muốn đăng xuất?');
+      document.getElementById('m-btn-logout')?.addEventListener('click', async () => {
+        const ok = await openStaffConfirm({
+          title: 'Đăng xuất',
+          message: 'Bạn có chắc muốn đăng xuất khỏi tài khoản khách hàng?',
+          confirmText: 'Đăng xuất',
+          danger: true,
+          side: 'left',
+        });
         if (!ok) return;
         clearCurrentUser();
         updateNavbarUser();
@@ -304,8 +313,13 @@ const bindUserDropdown = () => {
     }
   });
 
-  document.getElementById('btn-logout')?.addEventListener('click', () => {
-    const ok = window.confirm('Bạn có chắc muốn đăng xuất?');
+  document.getElementById('btn-logout')?.addEventListener('click', async () => {
+    const ok = await openStaffConfirm({
+      title: 'Đăng xuất',
+      message: 'Bạn có chắc muốn đăng xuất khỏi tài khoản khách hàng?',
+      confirmText: 'Đăng xuất',
+      danger: true,
+    });
     if (!ok) return;
     clearCurrentUser();
     updateNavbarUser();
