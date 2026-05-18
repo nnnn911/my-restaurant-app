@@ -10,9 +10,13 @@ exception
 end $$;
 
 do $$ begin
-  create type public.menu_category as enum ('ga', 'vit', 'com', 'uong');
+  create type public.menu_category as enum ('ga', 'vit', 'bun', 'mien', 'chao', 'kho');
 exception
-  when duplicate_object then null;
+  when duplicate_object then
+    alter type public.menu_category add value if not exists 'bun';
+    alter type public.menu_category add value if not exists 'mien';
+    alter type public.menu_category add value if not exists 'chao';
+    alter type public.menu_category add value if not exists 'kho';
 end $$;
 
 do $$ begin
@@ -151,7 +155,14 @@ create table if not exists public.app_sequences (
 );
 
 insert into public.app_sequences (key, value)
-values ('order', 0), ('pos_order', 0), ('reservation', 0), ('customer_code', 0)
+values
+  ('order', 0),
+  ('pos_order', 0),
+  ('reservation', 0),
+  ('customer_code', 0),
+  ('staff_code', 0),
+  ('owner_code', 0),
+  ('shipper_code', 0)
 on conflict (key) do nothing;
 
 create or replace function public.touch_updated_at()

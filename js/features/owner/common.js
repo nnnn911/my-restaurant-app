@@ -16,8 +16,10 @@ import { escapeAttr, escapeHtml } from '../../core/html.js';
 export const CATEGORY_LABELS = {
   ga: 'Gà',
   vit: 'Vịt',
-  com: 'Cơm',
-  uong: 'Đồ uống',
+  bun: 'Bún',
+  mien: 'Miến',
+  chao: 'Cháo',
+  kho: 'Món khô',
 };
 
 export const MENU_STATUS = {

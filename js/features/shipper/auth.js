@@ -1,4 +1,3 @@
-import { getStaticArray } from '../../data/db.js';
 import { readJson, removeStorageKey, writeJson } from '../../core/storage.js';
 import { isSupabaseConfigured } from '../../services/supabaseClient.js';
 import { remoteDataService } from '../../services/remoteDataService.js';
@@ -11,7 +10,8 @@ const normalizePhone = (phone = '') => phone.toString().trim().replace(/\s+/g, '
 const isShipperId = (id) => /^D\d{5}$/.test((id || '').toString());
 const formatShipperId = (n) => `D${String(n).padStart(5, '0').slice(-5)}`;
 
-const loadStaticShippers = () => getStaticArray('shipperUsers');
+const isLegacyShipperSeed = (user = {}) =>
+  user.id === 'D00000';
 
 const sanitizeShippers = (users = []) => {
   const used = new Set();
@@ -25,7 +25,7 @@ const sanitizeShippers = (users = []) => {
     return id;
   };
 
-  return (Array.isArray(users) ? users : []).map((user) => {
+  return (Array.isArray(users) ? users : []).filter((user) => !isLegacyShipperSeed(user)).map((user) => {
     const rawId = (user?.id || '').toString();
     const id = isShipperId(rawId) && !used.has(rawId) ? rawId : nextId();
     used.add(id);
@@ -41,26 +41,8 @@ const sanitizeShippers = (users = []) => {
 
 export const ensureShipperUsers = () => {
   const storedUsers = sanitizeShippers(readJson(SHIPPER_USERS_KEY, []));
-  const staticUsers = sanitizeShippers(loadStaticShippers());
-  const users = [...storedUsers];
-
-  staticUsers.forEach((staticUser) => {
-    const sameIdIdx = users.findIndex((u) => u.id === staticUser.id);
-    if (sameIdIdx >= 0) {
-      users[sameIdIdx] = {
-        ...staticUser,
-        ...users[sameIdIdx],
-        phone: users[sameIdIdx].phone || staticUser.phone,
-        password: users[sameIdIdx].phone ? users[sameIdIdx].password : staticUser.password,
-      };
-      return;
-    }
-    const exists = users.some((u) => u.phone && u.phone === staticUser.phone);
-    if (!exists) users.push(staticUser);
-  });
-
-  writeJson(SHIPPER_USERS_KEY, users);
-  return users;
+  writeJson(SHIPPER_USERS_KEY, storedUsers);
+  return storedUsers;
 };
 
 export const getShipperUsers = () => {
@@ -71,6 +53,10 @@ export const getShipperUsers = () => {
 export const getCurrentShipper = () => {
   ensureShipperUsers();
   const current = readJson(SHIPPER_CURRENT_KEY, null);
+  if (current && isLegacyShipperSeed(current)) {
+    logoutShipper();
+    return null;
+  }
   return current && typeof current === 'object' ? current : null;
 };
 

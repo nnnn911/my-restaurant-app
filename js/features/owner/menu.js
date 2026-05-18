@@ -367,7 +367,7 @@ const openCreateMenuDrawer = () => {
     const item = {
       id: `m${nextNum}`,
       name,
-      category: document.getElementById('new-menu-category')?.value || 'com',
+      category: document.getElementById('new-menu-category')?.value || 'kho',
       price,
       desc: document.getElementById('new-menu-desc')?.value.trim() || '',
       img: document.getElementById('new-menu-img')?.value.trim() || 'assets/images/placeholder.svg',

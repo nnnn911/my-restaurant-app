@@ -3,14 +3,12 @@
  * Schema mirrors staff accounts, but ids use A00000 format.
  */
 
-import { getStaticArray } from '../../data/db.js';
 import { readJson, removeStorageKey, writeJson, writeJsonIfChanged } from '../../core/storage.js';
 import { isSupabaseConfigured } from '../../services/supabaseClient.js';
 import { remoteDataService } from '../../services/remoteDataService.js';
 
 const OWNER_USERS_KEY = 'dq_owner_users';
 const OWNER_CURRENT_KEY = 'dq_owner_current';
-let staticOwnerUsersCache = null;
 let ownerUsersReady = false;
 
 const nowIso = () => new Date().toISOString();
@@ -18,14 +16,11 @@ const normalizePhone = (phone = '') => phone.toString().trim().replace(/\s+/g, '
 const isOwnerId = (id) => /^A\d{5}$/.test((id || '').toString());
 const formatOwnerId = (n) => `A${String(n).padStart(5, '0').slice(-5)}`;
 
-const loadStaticOwnerUsers = () => {
-  if (staticOwnerUsersCache) return staticOwnerUsersCache;
-  staticOwnerUsersCache = getStaticArray('ownerUsers');
-  return staticOwnerUsersCache;
-};
+const isLegacyOwnerSeed = (user = {}) =>
+  user.id === 'A00000';
 
 const sanitizeOwnerUsers = (users = []) => {
-  const source = Array.isArray(users) ? users : [];
+  const source = (Array.isArray(users) ? users : []).filter((user) => !isLegacyOwnerSeed(user));
   const used = new Set();
   let next = 0;
 
@@ -54,27 +49,9 @@ const sanitizeOwnerUsers = (users = []) => {
 export const ensureOwnerUsers = () => {
   if (ownerUsersReady) return readJson(OWNER_USERS_KEY, []);
   const storedUsers = sanitizeOwnerUsers(readJson(OWNER_USERS_KEY, []));
-  const staticUsers = sanitizeOwnerUsers(loadStaticOwnerUsers());
-  const users = [...storedUsers];
-
-  staticUsers.forEach((staticUser) => {
-    const sameIdIdx = users.findIndex((u) => u.id === staticUser.id);
-    if (sameIdIdx >= 0) {
-      users[sameIdIdx] = {
-        ...staticUser,
-        ...users[sameIdIdx],
-        phone: users[sameIdIdx].phone || staticUser.phone,
-        password: users[sameIdIdx].phone ? users[sameIdIdx].password : staticUser.password,
-      };
-      return;
-    }
-    const exists = users.some((u) => u.phone && u.phone === staticUser.phone);
-    if (!exists) users.push(staticUser);
-  });
-
-  writeJsonIfChanged(OWNER_USERS_KEY, users);
+  writeJsonIfChanged(OWNER_USERS_KEY, storedUsers);
   ownerUsersReady = true;
-  return users;
+  return storedUsers;
 };
 
 export const getOwnerUsers = () => {
@@ -84,6 +61,10 @@ export const getOwnerUsers = () => {
 
 export const getCurrentOwner = () => {
   const cur = readJson(OWNER_CURRENT_KEY, null);
+  if (cur && isLegacyOwnerSeed(cur)) {
+    logoutOwner();
+    return null;
+  }
   return cur && typeof cur === 'object' ? cur : null;
 };
 

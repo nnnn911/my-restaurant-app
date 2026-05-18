@@ -13,8 +13,10 @@ export const renderFooter = ({ onCategorySelect } = {}) => {
   const menuLinks = [
     ["ga", "Gà"],
     ["vit", "Vịt"],
-    ["com", "Cơm"],
-    ["uong", "Đồ uống"],
+    ["bun", "Bún"],
+    ["mien", "Miến"],
+    ["chao", "Cháo"],
+    ["kho", "Món khô"],
   ];
 
   footer.innerHTML = `
@@ -29,9 +31,9 @@ export const renderFooter = ({ onCategorySelect } = {}) => {
             </div>
           </div>
           <p class="footer-brand-desc">Quán gà & vịt đặc sản với hương vị đồng quê chân thực. Chúng tôi mang đến những bữa ăn tươi ngon, đậm đà từ gà vịt ta nuôi thả vườn.</p>
-          <div class="footer-contact-row">${icon('location', '', 'footer-contact-icon')} 12 Mai Chí Thọ, Phường An Khánh, TP.HCM</div>
-          <div class="footer-contact-row">${icon('phone', '', 'footer-contact-icon')} 0909 234 567</div>
-          <div class="footer-contact-row">${icon('email', '', 'footer-contact-icon')} contact@quanandongque.vn</div>
+          <div class="footer-contact-row">${icon('location', '', 'footer-contact-icon')} 93 Nguyễn Thị Đặng, Phường Tân Thới Hiệp, TP.HCM</div>
+          <div class="footer-contact-row">${icon('phone', '', 'footer-contact-icon')} 0938637644 - 0919187299</div>
+          <div class="footer-contact-row">${icon('email', '', 'footer-contact-icon')} gavitdongque123@gmail.com</div>
           <div class="footer-contact-row">${icon('clock', '', 'footer-contact-icon')} 7:00 - 22:00 (Thứ hai - Chủ nhật)</div>
         </div>
         <div>

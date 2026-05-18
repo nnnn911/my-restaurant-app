@@ -19,6 +19,7 @@ import {
 } from './common.js';
 import { getReservations } from '../../data/store.js';
 import { toast } from '../../ui/toast.js';
+import Chart from 'chart.js/auto';
 
 let analyticsRange = '7d';
 let analyticsCustomStart = '';
@@ -41,6 +42,9 @@ let orderSheetPage = 1;
 let analyticsFirstPaint = true;
 let analyticsCustomMenuOpen = false;
 let reportScrollRenderTimer = null;
+let ownerChartSeq = 0;
+let pendingOwnerCharts = [];
+let mountedOwnerCharts = [];
 const ORDER_PAGE_SIZE = 10;
 const REPORT_SHEET_PAGE_SIZE = 20;
 
@@ -133,7 +137,7 @@ const getReservationCategory = (reservation = {}) => {
   const type = (reservation.type || '').toString();
   if (type.startsWith('ga-')) return 'ga';
   if (type.startsWith('vit-')) return 'vit';
-  return 'com';
+  return 'kho';
 };
 
 const getOrderType = (order = {}) => {
@@ -172,6 +176,180 @@ const statusBadge = (status) => {
 const compareText = (a, b) => (a || '').toString().localeCompare((b || '').toString(), 'vi', { numeric: true });
 
 const getContributionPercent = (revenue, totalRevenue) => totalRevenue ? Math.round((revenue / totalRevenue) * 100) : 0;
+
+const ownerChartColors = () => {
+  const style = getComputedStyle(document.documentElement);
+  return {
+    primary: style.getPropertyValue('--color-primary-600').trim() || '#1f5c25',
+    primaryDark: style.getPropertyValue('--color-primary-800').trim() || '#15421b',
+    accent: style.getPropertyValue('--color-accent-400').trim() || '#f59e0b',
+    accentDark: style.getPropertyValue('--color-accent-600').trim() || '#d97706',
+    blue: '#2563eb',
+    red: '#dc2626',
+    purple: '#7c3aed',
+    text: style.getPropertyValue('--color-text').trim() || '#1f2937',
+    muted: style.getPropertyValue('--color-text-muted').trim() || '#6b7280',
+    border: style.getPropertyValue('--color-border').trim() || '#e5e7eb',
+    surface: style.getPropertyValue('--color-surface').trim() || '#ffffff',
+  };
+};
+
+const resetOwnerCharts = () => {
+  mountedOwnerCharts.forEach((chart) => chart.destroy());
+  mountedOwnerCharts = [];
+  pendingOwnerCharts = [];
+  ownerChartSeq = 0;
+};
+
+const chartCanvasHtml = ({ type, rows, valueKey, labelKey, money = true, mode = 'day', height = 300, horizontal = false, emptyHtml = '' }) => {
+  if (!rows.length) return emptyHtml;
+  const id = `owner-chart-${ownerChartSeq += 1}`;
+  pendingOwnerCharts.push({ id, type, rows, valueKey, labelKey, money, mode, horizontal });
+  return `
+    <div class="owner-chart owner-chartjs owner-chartjs--${escapeAttr(type)}" style="height:${height}px">
+      <canvas id="${id}" role="img" aria-label="${type === 'line' ? 'Biểu đồ đường' : type === 'doughnut' ? 'Biểu đồ donut' : 'Biểu đồ cột'}"></canvas>
+    </div>
+  `;
+};
+
+const mountOwnerCharts = () => {
+  mountedOwnerCharts.forEach((chart) => chart.destroy());
+  mountedOwnerCharts = [];
+  const colors = ownerChartColors();
+  const palette = [colors.primary, colors.accentDark, colors.blue, colors.red, colors.purple];
+
+  pendingOwnerCharts.forEach((spec) => {
+    const canvas = document.getElementById(spec.id);
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    const labels = spec.rows.map((row) => row[spec.labelKey] || row.label || chartAxisDateLabel(row.date, spec.mode));
+    const values = spec.rows.map((row) => Number(row[spec.valueKey] || 0));
+    const displayValue = (value) => spec.money ? formatPrice(value) : Number(value || 0).toLocaleString('vi-VN');
+    const baseOptions = {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: colors.surface,
+          titleColor: colors.text,
+          bodyColor: colors.text,
+          borderColor: colors.border,
+          borderWidth: 1,
+          padding: 10,
+          displayColors: spec.type !== 'line',
+          callbacks: {
+            title: (items) => {
+              const idx = items?.[0]?.dataIndex ?? 0;
+              const row = spec.rows[idx] || {};
+              return row.date ? chartDateLabel(row.date, spec.mode) : labels[idx];
+            },
+            label: (item) => {
+              const parsedValue = spec.horizontal ? item.parsed?.x : item.parsed?.y;
+              return displayValue(parsedValue ?? item.parsed ?? item.raw);
+            },
+          },
+        },
+      },
+      scales: {
+        x: {
+          grid: { color: colors.border },
+          ticks: { color: colors.muted, maxRotation: 0, autoSkip: true, font: { weight: '600' } },
+        },
+        y: {
+          beginAtZero: true,
+          grid: { color: colors.border },
+          ticks: {
+            color: colors.muted,
+            font: { weight: '600' },
+            callback: (value) => spec.money ? formatPrice(Number(value)).replace(/\s?₫$/, '') : Number(value).toLocaleString('vi-VN'),
+          },
+        },
+      },
+    };
+
+    let config;
+    if (spec.type === 'line') {
+      config = {
+        type: 'line',
+        data: {
+          labels,
+          datasets: [{
+            data: values,
+            borderColor: colors.primary,
+            backgroundColor: `${colors.primary}22`,
+            fill: true,
+            tension: 0.35,
+            pointRadius: 3,
+            pointHoverRadius: 6,
+            pointBackgroundColor: colors.primaryDark,
+            pointBorderColor: colors.surface,
+            pointBorderWidth: 2,
+          }],
+        },
+        options: baseOptions,
+      };
+    } else if (spec.type === 'doughnut') {
+      config = {
+        type: 'doughnut',
+        data: {
+          labels,
+          datasets: [{
+            data: values,
+            backgroundColor: labels.map((_, idx) => palette[idx % palette.length]),
+            borderColor: colors.surface,
+            borderWidth: 3,
+            hoverOffset: 8,
+          }],
+        },
+        options: {
+          ...baseOptions,
+          cutout: '62%',
+          scales: {},
+          plugins: {
+            ...baseOptions.plugins,
+            legend: {
+              display: true,
+              position: 'right',
+              labels: { color: colors.text, boxWidth: 10, boxHeight: 10, usePointStyle: true },
+            },
+          },
+        },
+      };
+    } else {
+      config = {
+        type: 'bar',
+        data: {
+          labels,
+          datasets: [{
+            data: values,
+            backgroundColor: spec.horizontal ? colors.primary : colors.accent,
+            borderColor: spec.horizontal ? colors.primaryDark : colors.accentDark,
+            borderWidth: 1,
+            borderRadius: 6,
+            barThickness: spec.horizontal ? 14 : undefined,
+          }],
+        },
+        options: {
+          ...baseOptions,
+          indexAxis: spec.horizontal ? 'y' : 'x',
+          scales: {
+            x: spec.horizontal ? {
+              beginAtZero: true,
+              grid: { color: colors.border },
+              ticks: { color: colors.muted, callback: (value) => displayValue(value) },
+            } : baseOptions.scales.x,
+            y: spec.horizontal ? {
+              grid: { display: false },
+              ticks: { color: colors.text, font: { size: 11, weight: '600' } },
+            } : baseOptions.scales.y,
+          },
+        },
+      };
+    }
+    mountedOwnerCharts.push(new Chart(ctx, config));
+  });
+};
 
 const resetReportSheetPages = () => {
   revenueSheetPage = 1;
@@ -298,7 +476,7 @@ const getOrderItems = (orders) => {
       const row = map.get(key) || {
         id: key,
         name: item.name || menuItem.name || 'Món chưa đặt tên',
-        category: menuItem.category || item.category || 'com',
+        category: menuItem.category || item.category || 'kho',
         qty: 0,
         revenue: 0,
       };
@@ -475,64 +653,18 @@ const chartXAxisTicks = (domain, mode) => {
 };
 
 const lineChartHtml = (rows, valueKey = 'revenue', { showLegend = true, showAxes = false, mode = 'day', range = null } = {}) => {
-  const width = 720;
-  const height = 240;
-  const padLeft = showAxes ? 22 : 20;
-  const padRight = 18;
-  const padTop = 16;
-  const padBottom = showAxes ? 34 : 20;
   if (!rows.length) return `<div class="owner-chart-empty empty-state"><h3>Chưa có dữ liệu</h3><p>Thử chọn khoảng thời gian khác.</p></div>`;
   const chartRows = completeChartRows(rows, mode, range);
-  const domain = getChartDomain(chartRows, mode, range);
-  const domainStart = domain.start.getTime();
-  const domainEnd = domain.end.getTime();
-  const domainSpan = Math.max(domainEnd - domainStart, 1);
-  const max = Math.max(...chartRows.map((r) => Number(r[valueKey] || 0)), 1);
-  const plotWidth = width - padLeft - padRight;
-  const plotHeight = height - padTop - padBottom;
-  const xForDate = (date) => padLeft + ((startOfBucket(date, mode).getTime() - domainStart) / domainSpan) * plotWidth;
-  const xTicks = chartXAxisTicks(domain, mode).map((tick) => ({
-    ...tick,
-    x: xForDate(tick.date),
-  }));
-  const points = chartRows.map((r) => {
-    const x = clamp(xForDate(r.date), padLeft, width - padRight);
-    const y = height - padBottom - (Number(r[valueKey] || 0) / max) * plotHeight;
-    const value = Number(r[valueKey] || 0);
-    const displayValue = valueKey === 'revenue' ? formatPrice(value) : value.toLocaleString('vi-VN');
-    const tooltipWidth = 164;
-    const tooltipHeight = 50;
-    const tooltipX = clamp(x - tooltipWidth / 2, padLeft, width - padRight - tooltipWidth);
-    const tooltipY = y > padTop + tooltipHeight + 16 ? y - tooltipHeight - 14 : y + 16;
-    return { ...r, x, y, displayValue, tooltipX, tooltipY, tooltipWidth, tooltipHeight };
+  return chartCanvasHtml({
+    type: 'line',
+    rows: chartRows.map((row) => ({ ...row, label: chartAxisDateLabel(row.date, mode) })),
+    valueKey,
+    labelKey: 'label',
+    money: valueKey === 'revenue',
+    mode,
+    height: 300,
+    emptyHtml: `<div class="owner-chart-empty empty-state"><h3>Chưa có dữ liệu</h3><p>Thử chọn khoảng thời gian khác.</p></div>`,
   });
-  return `
-    <div class="owner-chart owner-line-chart">
-      <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Biểu đồ doanh thu theo thời gian">
-        ${showAxes ? `
-          <line class="owner-axis" x1="${padLeft}" y1="${height - padBottom}" x2="${width - padRight}" y2="${height - padBottom}"></line>
-          ${xTicks.map((tick) => `
-            <line class="owner-axis-tick" x1="${tick.x}" y1="${height - padBottom}" x2="${tick.x}" y2="${height - padBottom + 5}"></line>
-            <text class="owner-axis-label owner-axis-label-x" x="${tick.x}" y="${height - 14}" text-anchor="middle">${escapeHtml(tick.label)}</text>
-          `).join('')}
-        ` : ''}
-        <polyline points="${points.map((p) => `${p.x},${p.y}`).join(' ')}" fill="none" stroke="var(--color-primary-600)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"></polyline>
-        ${points.map((p) => `
-          <g class="owner-chart-point" tabindex="0" aria-label="${escapeAttr(`${chartDateLabel(p.date, mode)}: ${p.displayValue}`)}">
-            <line class="owner-chart-hover-line" x1="${p.x}" y1="${padTop}" x2="${p.x}" y2="${height - padBottom}"></line>
-            <circle class="owner-chart-hit" cx="${p.x}" cy="${p.y}" r="16"></circle>
-            <circle class="owner-chart-dot" cx="${p.x}" cy="${p.y}" r="5"></circle>
-            <g class="owner-chart-tooltip" transform="translate(${p.tooltipX} ${p.tooltipY})">
-              <rect width="${p.tooltipWidth}" height="${p.tooltipHeight}" rx="7"></rect>
-              <text class="owner-chart-tooltip-date" x="12" y="19">${escapeHtml(chartDateLabel(p.date, mode))}</text>
-              <text class="owner-chart-tooltip-value" x="12" y="38">${escapeHtml(p.displayValue)}</text>
-            </g>
-          </g>
-        `).join('')}
-      </svg>
-      ${showLegend ? '<div class="owner-chart-legend"><span class="owner-legend-dot primary"></span>Doanh thu</div>' : ''}
-    </div>
-  `;
 };
 
 const barChartHtml = (rows, {
@@ -548,52 +680,30 @@ const barChartHtml = (rows, {
   singleBar = false,
 } = {}) => {
   if (!rows.length) return `<div class="owner-chart-empty empty-state"><h3>Chưa có dữ liệu</h3><p>Không có mục nào phù hợp bộ lọc.</p></div>`;
-  const max = Math.max(...rows.map((r) => Number(r[valueKey] || 0)), 1);
-  return `
-    <div class="owner-bars${horizontal ? ' owner-bars--horizontal' : ''}${mono ? ' owner-bars--mono' : ''}${valueInLabel ? ' owner-bars--with-label-value' : ''}${hideValue ? ' owner-bars--hide-value' : ''}${labelsOnBar ? ' owner-bars--labels-on-bar' : ''}${singleBar ? ' owner-bars--single-bar' : ''}" role="img" aria-label="Biểu đồ cột">
-      ${rows.map((row) => {
-        const value = Number(row[valueKey] || 0);
-        const pct = Math.max(3, Math.round((value / max) * 100));
-        const display = money ? formatPrice(value) : value.toLocaleString('vi-VN');
-        const label = row[labelKey];
-        return `
-          <div class="owner-bar-row" title="${escapeAttr(label)}: ${escapeAttr(display)}">
-            ${labelsOnBar ? '' : `<div class="owner-bar-label"><span>${escapeHtml(label)}</span>${valueInLabel ? `<small>${escapeHtml(display)}</small>` : ''}</div>`}
-            ${hideValue ? '' : `<div class="owner-bar-value">${escapeHtml(display)}</div>`}
-            <div class="owner-bar-track">
-              <span style="${horizontal ? `width:${pct}%` : `height:${pct}%`}"></span>
-              ${labelsOnBar ? `<em class="owner-bar-overlay-label">${escapeHtml(label)}</em>` : ''}
-            </div>
-          </div>
-        `;
-      }).join('')}
-      ${showLegend ? `<div class="owner-chart-legend"><span class="owner-legend-dot accent"></span>${money ? 'Doanh thu' : 'Số lượng'}</div>` : ''}
-    </div>
-  `;
+  return chartCanvasHtml({
+    type: 'bar',
+    rows,
+    valueKey,
+    labelKey,
+    money,
+    horizontal,
+    height: horizontal ? Math.max(240, Math.min(420, rows.length * 34 + 80)) : 300,
+    emptyHtml: `<div class="owner-chart-empty empty-state"><h3>Chưa có dữ liệu</h3><p>Không có mục nào phù hợp bộ lọc.</p></div>`,
+  });
 };
 
 const donutChartHtml = (rows, { valueKey = 'revenue', labelKey = 'label', money = true } = {}) => {
   const total = rows.reduce((sum, row) => sum + Number(row[valueKey] || 0), 0);
   if (!total) return `<div class="owner-chart-empty empty-state"><h3>Chưa có dữ liệu</h3><p>Không có phần doanh thu để hiển thị.</p></div>`;
-  const colors = ['#1f5c25', '#d97706', '#2563eb', '#dc2626', '#7c3aed'];
-  let acc = 0;
-  const stops = rows.map((row, idx) => {
-    const start = acc;
-    acc += (Number(row[valueKey] || 0) / total) * 100;
-    return `${colors[idx % colors.length]} ${start}% ${acc}%`;
-  }).join(', ');
-  return `
-    <div class="owner-donut-wrap">
-      <div class="owner-donut" style="background:conic-gradient(${stops})" role="img" aria-label="Biểu đồ donut"></div>
-      <div class="owner-donut-legend">
-        ${rows.map((row, idx) => {
-          const value = Number(row[valueKey] || 0);
-          const display = money ? formatPrice(value) : value.toLocaleString('vi-VN');
-          return `<div title="${escapeAttr(row[labelKey])}: ${escapeAttr(display)}"><span style="background:${colors[idx % colors.length]}"></span><em>${escapeHtml(row[labelKey])}</em><small>${escapeHtml(display)}</small><strong>${Math.round((value / total) * 100)}%</strong></div>`;
-        }).join('')}
-      </div>
-    </div>
-  `;
+  return chartCanvasHtml({
+    type: 'doughnut',
+    rows,
+    valueKey,
+    labelKey,
+    money,
+    height: 280,
+    emptyHtml: `<div class="owner-chart-empty empty-state"><h3>Chưa có dữ liệu</h3><p>Không có phần doanh thu để hiển thị.</p></div>`,
+  });
 };
 
 const openOrderDetailDrawer = (id) => {
@@ -659,6 +769,7 @@ const openOrderDetailDrawer = (id) => {
 };
 
 export const renderDashboardPage = () => {
+  resetOwnerCharts();
   if (analyticsRange === 'all') analyticsRange = '7d';
   const range = getDateRange();
   const orders = getAnalyticsOrders();
@@ -829,6 +940,7 @@ const renderOrdersTab = (orders) => {
 };
 
 export const renderReportsPage = () => {
+  resetOwnerCharts();
   const orders = getAnalyticsOrders();
   const revenueOrders = getRevenueRecords(orders);
   const summary = getAnalyticsSummary(revenueOrders);
@@ -857,6 +969,7 @@ const syncReportTabsNav = () => {
 };
 
 const bindAnalyticsFilters = ({ bindRange = true } = {}) => {
+  mountOwnerCharts();
   if (analyticsFirstPaint) {
     analyticsFirstPaint = false;
     window.setTimeout(() => rerenderOwnerPage(), 220);

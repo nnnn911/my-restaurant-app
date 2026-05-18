@@ -38,9 +38,9 @@ const renderAbout = () => {
             <div>
               <h3 style="font-size:var(--font-size-lg);font-weight:800;margin-bottom:var(--space-2)">Liên hệ</h3>
               <div style="display:flex;flex-direction:column;gap:var(--space-2);color:var(--color-text-muted)">
-                <div class="about-contact-row">${icon('location', '', 'about-contact-icon')} 12 Mai Chí Thọ, Phường An Khánh, TP.HCM</div>
-                <div class="about-contact-row">${icon('phone', '', 'about-contact-icon')} 0901 234 567</div>
-                <div class="about-contact-row">${icon('email', '', 'about-contact-icon')} contact@quanandongque.vn</div>
+                <div class="about-contact-row">${icon('location', '', 'about-contact-icon')} 93 Nguyễn Thị Đặng, Phường Tân Thới Hiệp, TP.HCM</div>
+                <div class="about-contact-row">${icon('phone', '', 'about-contact-icon')} 0938637644 - 0919187299</div>
+                <div class="about-contact-row">${icon('email', '', 'about-contact-icon')} gavitdongque123@gmail.com</div>
                 <div class="about-contact-row">${icon('clock', '', 'about-contact-icon')} 7:00 - 22:00 (Thứ hai - Chủ nhật)</div>
               </div>
             </div>

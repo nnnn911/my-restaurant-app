@@ -3,7 +3,6 @@
  * Separate from customer auth (store.js)
  */
 
-import { getStaticArray } from '../../data/db.js';
 import { readJson, removeStorageKey, writeJson } from '../../core/storage.js';
 import { isSupabaseConfigured } from '../../services/supabaseClient.js';
 import { remoteDataService } from '../../services/remoteDataService.js';
@@ -17,9 +16,8 @@ const isStaffId = (id) => /^E\d{5}$/.test((id || '').toString());
 const formatStaffId = (n) => `E${String(n).padStart(5, '0').slice(-5)}`;
 const isLegacyStaffSeed = (user = {}) =>
   user.id === 's_seed_1'
+  || user.id === 'E00000'
   || ((user.username || '').toString() === 'staff' && (user.password || '').toString() === '123');
-
-const loadStaticStaffUsers = () => getStaticArray('staffUsers');
 
 const sanitizeStaffUsers = (users = []) => {
   const source = (Array.isArray(users) ? users : []).filter((user) => !isLegacyStaffSeed(user));
@@ -50,26 +48,8 @@ const sanitizeStaffUsers = (users = []) => {
 
 export const ensureStaffUsers = () => {
   const storedUsers = sanitizeStaffUsers(readJson(STAFF_USERS_KEY, []));
-  const staticUsers = sanitizeStaffUsers(loadStaticStaffUsers());
-  const users = [...storedUsers];
-
-  staticUsers.forEach((staticUser) => {
-    const sameIdIdx = users.findIndex((u) => u.id === staticUser.id);
-    if (sameIdIdx >= 0) {
-      users[sameIdIdx] = {
-        ...staticUser,
-        ...users[sameIdIdx],
-        phone: users[sameIdIdx].phone || staticUser.phone,
-        password: users[sameIdIdx].phone ? users[sameIdIdx].password : staticUser.password,
-      };
-      return;
-    }
-    const exists = users.some((u) => u.phone && u.phone === staticUser.phone);
-    if (!exists) users.push(staticUser);
-  });
-
-  writeJson(STAFF_USERS_KEY, users);
-  return users;
+  writeJson(STAFF_USERS_KEY, storedUsers);
+  return storedUsers;
 };
 
 export const getStaffUsers = () => {

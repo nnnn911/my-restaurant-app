@@ -137,7 +137,7 @@ const toVoucherRow = (voucher = {}) => ({
 const toMenuRow = (item = {}, sortOrder = 0) => ({
   id: item.id,
   name: item.name,
-  category: item.category || 'com',
+  category: item.category || 'kho',
   price: Number(item.price || 0),
   description: item.desc || '',
   image_path: item.img || 'assets/images/placeholder.svg',

@@ -10,6 +10,8 @@ import { remoteDataService } from '../../services/remoteDataService.js';
 import { saveCurrentUser } from '../../data/store.js';
 import { maybePromptLocalDataMigration } from './migration.js';
 
+const POST_LOGIN_REDIRECT_KEY = 'dongque:postLoginRedirect';
+
 let modalEl = null;
 
 export const openAuthModal = (defaultTab = 'login') => {
@@ -164,6 +166,7 @@ const bindAuthEvents = () => {
     // Trigger custom event for pages to respond
     window.dispatchEvent(new CustomEvent('user:loggedin', { detail: result.user }));
     maybePromptLocalDataMigration();
+    redirectAfterLoginIfNeeded();
   });
 
   // Register submit
@@ -184,7 +187,15 @@ const bindAuthEvents = () => {
     closeAuthModal();
     window.dispatchEvent(new CustomEvent('user:loggedin', { detail: result.user }));
     maybePromptLocalDataMigration();
+    redirectAfterLoginIfNeeded();
   });
+};
+
+const redirectAfterLoginIfNeeded = () => {
+  const target = sessionStorage.getItem(POST_LOGIN_REDIRECT_KEY);
+  if (!target) return;
+  sessionStorage.removeItem(POST_LOGIN_REDIRECT_KEY);
+  window.location.href = target;
 };
 
 const isValidPhone = (phone) => /^(0|\+84)[0-9]{8,10}$/.test(phone.replace(/\s+/g, ''));

@@ -220,8 +220,8 @@ const renderOrderCard = (order, highlight = false) => {
     const itemName = (item.name || '').toString().trim().toLowerCase();
     const byName = menu.find((m) => (m.name || '').toString().trim().toLowerCase() === itemName);
     if (byName?.img) return byName.img;
-    if (itemName.includes('gà')) return 'assets/images/ga-nuong.jpg';
-    if (itemName.includes('vịt')) return 'assets/images/vit-quay.jpg';
+    if (itemName.includes('gà')) return 'assets/images/M001-ga-nguyen-con.jpg';
+    if (itemName.includes('vịt')) return 'assets/images/M010-vit-nguyen-con.jpg';
     return 'assets/images/placeholder.svg';
   };
   const totalQty = (order.items || []).reduce((sum, item) => {

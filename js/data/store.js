@@ -1,16 +1,17 @@
 /**
- * store.js - Static db.json + LocalStorage data management module
+ * store.js - LocalStorage cache + Supabase data management module
  * Quán Ăn Đồng Quê
  */
 
-import { getStaticArray, loadStaticDb } from './db.js';
 import { readJson, removeStorageKey, writeJson, writeJsonIfChanged } from '../core/storage.js';
 import { isSupabaseConfigured } from '../services/supabaseClient.js';
 import { remoteDataService } from '../services/remoteDataService.js';
 
 // Single-key storage (preparing for Admin/Shipper apps)
 const DB_KEY = 'dq_db';
-const DB_SCHEMA_VERSION = 5;
+const DB_SCHEMA_VERSION = 6;
+const DB_PURGE_KEY = 'dq_db_json_purge_version';
+const DB_PURGE_VERSION = 1;
 
 // Legacy keys (for one-time migration)
 const LEGACY_KEYS = {
@@ -39,12 +40,6 @@ const mergeByKey = (base = [], overrides = [], key = 'id') => {
 };
 
 const mergeById = (base = [], overrides = []) => mergeByKey(base, overrides, 'id');
-
-const getStaticUsers = () => getStaticArray('users');
-const getStaticDbSnapshot = () => {
-  const source = loadStaticDb();
-  return source && typeof source === 'object' ? source : {};
-};
 
 const PAYMENT_METHODS = new Set(['cash', 'bank', 'momo', 'vnpay']);
 
@@ -86,9 +81,7 @@ const normalizePhone = (phone = '') => phone.toString().trim().replace(/\s+/g, '
 const isSixDigitId = (id) => /^\d{6}$/.test((id || '').toString());
 const formatUserId = (n) => String(n).padStart(6, '0').slice(-6);
 const isLegacyCustomerSeed = (user = {}) =>
-  user.id === 'u_seed_customer'
-  || user.email === 'customer@example.com'
-  || (user.name === 'customer' && user.password === '123' && !normalizePhone(user.phone));
+  (user.id || '').toString().startsWith('u_');
 
 const sanitizeUser = (user = {}, id = user?.id) => {
   const points = Number(user.points || 0);
@@ -162,36 +155,11 @@ const normalizeDbUsers = (db) => {
   const carts = {};
 
   Object.entries(db.carts || {}).forEach(([owner, cart]) => {
-    if (owner === 'u_seed_customer') return;
     const nextOwner = idMap.get(owner) || owner;
     carts[nextOwner] = [...(carts[nextOwner] || []), ...(Array.isArray(cart) ? cart : [])];
   });
 
   return { ...db, users, currentUserId, carts };
-};
-
-const syncStaticAccounts = (db) => {
-  const normalizedDb = normalizeDbUsers(db);
-  const users = normalizedDb.users;
-  const staticUsers = sanitizeUsers(getStaticUsers());
-
-  staticUsers.forEach((staticUser) => {
-    if (!staticUser?.id) return;
-    const sameIdIdx = users.findIndex((u) => u.id === staticUser.id);
-    if (sameIdIdx >= 0) {
-      users[sameIdIdx] = sanitizeUser({
-        ...staticUser,
-        ...users[sameIdIdx],
-        phone: users[sameIdIdx].phone || staticUser.phone,
-        password: users[sameIdIdx].phone ? users[sameIdIdx].password : staticUser.password,
-      });
-      return;
-    }
-    const exists = users.some((u) => u.phone && u.phone === staticUser.phone);
-    if (!exists) users.push({ ...staticUser });
-  });
-
-  return { ...normalizedDb, users };
 };
 
 const createEmptyDb = () => ({
@@ -208,42 +176,17 @@ const createEmptyDb = () => ({
   meta: {},
 });
 
-const createStaticSeedDb = () => {
-  const staticDb = getStaticDbSnapshot();
-  return {
-    ...createEmptyDb(),
-    schemaVersion: DB_SCHEMA_VERSION,
-    users: Array.isArray(staticDb.users) ? staticDb.users : [],
-    orders: Array.isArray(staticDb.orders) ? staticDb.orders : [],
-    reservations: Array.isArray(staticDb.reservations) ? staticDb.reservations : [],
-    vouchers: Array.isArray(staticDb.vouchers) ? staticDb.vouchers : null,
-    menu: Array.isArray(staticDb.menu) ? staticDb.menu : null,
-    meta: staticDb.meta && typeof staticDb.meta === 'object' ? { ...staticDb.meta } : {},
-  };
-};
-
-const mergeStaticSeed = (db = {}) => {
-  const seed = createStaticSeedDb();
-  const merged = {
-    ...seed,
-    ...db,
-    schemaVersion: DB_SCHEMA_VERSION,
-    users: mergeById(seed.users, db.users || []),
-    orders: mergeById(seed.orders, db.orders || []).map(normalizeOrderRecord),
-    reservations: mergeById(seed.reservations, db.reservations || []),
-    vouchers: db.vouchers === null || db.vouchers === undefined
-      ? (seed.vouchers || []).map(normalizeVoucher)
-      : mergeByKey(seed.vouchers || [], db.vouchers || [], 'code').map(normalizeVoucher),
-    menu: db.menu === null || db.menu === undefined
-      ? seed.menu
-      : mergeById(seed.menu || [], db.menu || []),
-    meta: {
-      ...(seed.meta || {}),
-      ...(db.meta || {}),
-    },
-  };
-  return syncStaticAccounts(merged);
-};
+const normalizeCacheDb = (db = {}) => normalizeDbUsers({
+  ...createEmptyDb(),
+  ...db,
+  schemaVersion: DB_SCHEMA_VERSION,
+  users: sanitizeUsers(db.users || []),
+  orders: (db.orders || []).map(normalizeOrderRecord),
+  reservations: Array.isArray(db.reservations) ? db.reservations : [],
+  vouchers: Array.isArray(db.vouchers) ? db.vouchers.map(normalizeVoucher) : [],
+  menu: Array.isArray(db.menu) ? db.menu.map((item) => ({ ...item, sold: Number(item.sold || 0) })) : [],
+  meta: db.meta && typeof db.meta === 'object' ? { ...db.meta } : {},
+});
 
 /* ---- Checkout draft (transient state stored in dq_db) ---- */
 export const getCheckoutDraft = () => {
@@ -280,6 +223,18 @@ const cleanupLegacyKeys = () => {
   Object.values(LEGACY_KEYS).forEach((key) => removeStorageKey(key));
 };
 
+const ensureDbJsonPurge = () => {
+  try {
+    if (localStorage.getItem(DB_PURGE_KEY) === String(DB_PURGE_VERSION)) return;
+    removeStorageKey(DB_KEY);
+    cleanupLegacyKeys();
+    localStorage.setItem(DB_PURGE_KEY, String(DB_PURGE_VERSION));
+    dbCache = null;
+  } catch {
+    // Ignore storage failures; app can still run with in-memory defaults.
+  }
+};
+
 const migrateLegacyToDb = () => {
   const legacyUsers = readJson(LEGACY_KEYS.USERS, []);
   const legacyCurrent = readJson(LEGACY_KEYS.CURRENT, null);
@@ -289,7 +244,7 @@ const migrateLegacyToDb = () => {
   const legacyMenu = readJson(LEGACY_KEYS.MENU, null);
   const legacyReservations = readJson(LEGACY_KEYS.RESERVATIONS, []);
 
-  const db = createStaticSeedDb();
+  const db = createEmptyDb();
 
   db.users = mergeById(db.users, Array.isArray(legacyUsers) ? legacyUsers : []);
 
@@ -309,18 +264,26 @@ const migrateLegacyToDb = () => {
 
   db.meta = { ...(db.meta || {}), migratedFromLegacyAt: nowIso() };
 
-  saveDb(mergeStaticSeed(db));
+  saveDb(normalizeCacheDb(db));
   cleanupLegacyKeys();
   return dbCache;
 };
 
 const ensureDb = () => {
   if (dbCache) return dbCache;
+  ensureDbJsonPurge();
   const existing = readJson(DB_KEY, null);
   if (existing && typeof existing === 'object') {
-    const merged = mergeStaticSeed({ ...createEmptyDb(), ...existing, schemaVersion: DB_SCHEMA_VERSION });
-    dbCache = merged;
-    writeJsonIfChanged(DB_KEY, merged);
+    if (existing.schemaVersion !== DB_SCHEMA_VERSION) {
+      const fresh = createEmptyDb();
+      dbCache = fresh;
+      writeJsonIfChanged(DB_KEY, fresh);
+      cleanupLegacyKeys();
+      return dbCache;
+    }
+    const normalized = normalizeCacheDb(existing);
+    dbCache = normalized;
+    writeJsonIfChanged(DB_KEY, normalized);
     return dbCache;
   }
   return migrateLegacyToDb();
@@ -351,7 +314,7 @@ export const hydrateOnlineData = async () => {
       ['owner', 'staff'].includes(profile?.role) ? remoteDataService.getUsers().catch(() => null) : Promise.resolve(null),
     ]);
 
-    if (Array.isArray(menu) && menu.length) nextDb.menu = menu;
+    if (Array.isArray(menu)) nextDb.menu = menu;
     if (Array.isArray(vouchers)) nextDb.vouchers = vouchers;
     if (Array.isArray(orders)) nextDb.orders = orders.map(normalizeOrderRecord);
     if (Array.isArray(reservations)) nextDb.reservations = reservations;
@@ -699,7 +662,7 @@ export const getOrderById = (id) =>
 /* ---- Vouchers ---- */
 export const getVouchers = () => {
   const db = ensureDb();
-  return mergeByKey(getStaticArray('vouchers').map(normalizeVoucher), db.vouchers || [], 'code').map(normalizeVoucher);
+  return (db.vouchers || []).map(normalizeVoucher);
 };
 
 export const saveVouchers = (vouchers) => {
@@ -798,17 +761,19 @@ export const redeemPointsForVoucher = (amount) => {
 };
 
 /* ---- Menu ---- */
-const ALLOWED_MENU_CATEGORIES = new Set(['ga', 'vit', 'com', 'uong']);
+const ALLOWED_MENU_CATEGORIES = new Set(['ga', 'vit', 'bun', 'mien', 'chao', 'kho']);
 const MENU_IMAGE_EXTENSIONS = ['jpg', 'jpeg', 'png', 'webp'];
 
 const normalizeMenuCategory = (cat) => {
   const raw = (cat || '').toString().trim().toLowerCase();
-  if (!raw) return 'com';
+  if (!raw) return 'kho';
   if (['ga', 'gà', 'chicken'].includes(raw)) return 'ga';
   if (['vit', 'vịt', 'duck'].includes(raw)) return 'vit';
-  if (['com', 'cơm', 'rice', 'phu', 'món phụ', 'mon phu', 'side'].includes(raw)) return 'com';
-  if (['uong', 'đồ uống', 'do uong', 'drink', 'nuoc', 'nước'].includes(raw)) return 'uong';
-  return 'com';
+  if (['bun', 'bún', 'noodle'].includes(raw)) return 'bun';
+  if (['mien', 'miến', 'glass noodle'].includes(raw)) return 'mien';
+  if (['chao', 'cháo', 'porridge'].includes(raw)) return 'chao';
+  if (['kho', 'khô', 'món khô', 'mon kho', 'dry', 'com', 'cơm', 'rice', 'phu', 'món phụ', 'mon phu', 'side', 'uong', 'đồ uống', 'do uong', 'drink', 'nuoc', 'nước'].includes(raw)) return 'kho';
+  return 'kho';
 };
 
 const slugifyMenuName = (name) =>
@@ -837,7 +802,7 @@ const normalizeMenuItem = (item, defaultItem = null) => {
   const { badge, available, isNew, ...itemWithoutLegacyFlags } = item || {};
   delete itemWithoutLegacyFlags['is' + 'New'];
   const normalizedCategory = normalizeMenuCategory(item.category);
-  const fixedCategory = ALLOWED_MENU_CATEGORIES.has(normalizedCategory) ? normalizedCategory : 'com';
+  const fixedCategory = ALLOWED_MENU_CATEGORIES.has(normalizedCategory) ? normalizedCategory : 'kho';
 
   const sold = Number.isFinite(Number(item.sold)) ? Number(item.sold) : 0;
   const defaultImage = isMissingMenuImage(defaultItem?.img) ? '' : defaultItem?.img;
@@ -862,40 +827,11 @@ const normalizeMenuItem = (item, defaultItem = null) => {
 
 export const getMenu = () => {
   const db = ensureDb();
-  const stored = Array.isArray(db.menu) ? db.menu : null;
-  const defaults = getStaticArray('menu');
-
-  const storedArr = Array.isArray(stored) ? stored : null;
-  const defaultById = new Map(defaults.filter((item) => item?.id).map((item) => [item.id, item]));
-
-  // Merge: defaults first (stored overrides), then any stored extras.
-  const merged = mergeById(defaults, storedArr || []);
-
-  const normalized = merged
-    .map((item) => normalizeMenuItem(item, defaultById.get(item.id)));
-
-  const shouldSave = storedArr && storedArr.length !== normalized.length;
-  if (shouldSave) saveDb({ ...db, menu: normalized });
-  else if (storedArr) {
-    // Also save if categories/sold fields were missing previously.
-    const anyNeedsFix = storedArr.some((it) => {
-      const rawCat = (it.category || '').toString().trim().toLowerCase();
-      const cat = normalizeMenuCategory(it.category);
-      const fixedCat = ALLOWED_MENU_CATEGORIES.has(cat);
-      const categoryNeedsFix = rawCat !== cat;
-      const hasSold = Number.isFinite(Number(it.sold));
-      const defaultImage = defaultById.get(it.id)?.img;
-      const replacementImage = !isMissingMenuImage(defaultImage) ? defaultImage : inferMenuImagePath(it);
-      const missingImage = isMissingMenuImage(it.img) && !!replacementImage;
-      const hasLegacyBadge = Object.prototype.hasOwnProperty.call(it, 'badge');
-      const hasStatus = ['available', 'soldout', 'hidden'].includes((it.status || '').toString());
-      const hasLegacyIsNew = Object.prototype.hasOwnProperty.call(it, 'isNew');
-      const hasLegacyAvailable = Object.prototype.hasOwnProperty.call(it, 'available');
-      return !fixedCat || categoryNeedsFix || !hasSold || typeof it.desc !== 'string' || missingImage || hasLegacyBadge || hasLegacyIsNew || hasLegacyAvailable || !hasStatus;
-    });
-    if (anyNeedsFix) saveDb({ ...db, menu: normalized });
+  const stored = Array.isArray(db.menu) ? db.menu : [];
+  const normalized = stored.map((item) => normalizeMenuItem(item));
+  if (stored.length !== normalized.length || stored.some((item, idx) => JSON.stringify(item) !== JSON.stringify(normalized[idx]))) {
+    saveDb({ ...db, menu: normalized });
   }
-
   return normalized;
 };
 export const saveMenu = (menu) => {

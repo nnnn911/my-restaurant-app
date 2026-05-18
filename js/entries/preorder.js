@@ -3,6 +3,7 @@ import { toast } from '../ui/toast.js';
 import { renderFooter } from '../ui/footer.js';
 import { createReservationOnline, formatPrice, getCurrentUser, getMenu, hydrateOnlineData } from '../data/store.js';
 import { icon } from '../ui/icons.js';
+import { openAuthModal } from '../features/customer/auth.js';
 
 const PREORDER_TYPES = [
   { id: "ga-nguyen-con", label: "Gà nguyên con", category: "ga" },
@@ -119,10 +120,14 @@ const renderPreorderSection = () => {
             <input class="form-control" type="text" id="res-note" placeholder="Ví dụ: Làm sạch, chặt sẵn, ghi chú cúng lễ..." maxlength="120">
           </div>
           <div id="res-error" class="form-error" style="display:none;margin-bottom:var(--space-4)"></div>
-          <div style="display:flex;justify-content:center">
+          <div style="display:flex;align-items:center;justify-content:center;gap:var(--space-4);flex-wrap:wrap">
+            <div id="preorder-price-summary" style="font-weight:800;color:var(--color-primary-700);font-size:var(--font-size-lg)">
+              Tạm tính: -
+            </div>
             <button type="submit" class="btn btn-primary btn-lg" id="btn-reserve" style="min-width:240px">
               Gửi yêu cầu đặt trước
             </button>
+            
           </div>
         </form>
       </div>
@@ -131,6 +136,17 @@ const renderPreorderSection = () => {
   document.querySelector(".page-content")?.appendChild(section);
 
   const dateInput = document.getElementById("res-date");
+  const typeSelect = document.getElementById("res-type");
+  const priceSummary = document.getElementById("preorder-price-summary");
+
+  const updatePriceSummary = () => {
+    const selected = typeSelect?.selectedOptions?.[0];
+    const price = Number(selected?.dataset?.price || 0);
+    priceSummary.textContent = price > 0 ? `Tạm tính: ${formatPrice(price)}` : "Tạm tính: -";
+  };
+
+  typeSelect?.addEventListener("change", updatePriceSummary);
+  updatePriceSummary();
 
   const parseDateVi = (value) => {
     const v = (value || "").trim();
@@ -157,6 +173,13 @@ const renderPreorderSection = () => {
   document.getElementById("reservation-form")?.addEventListener("submit", async (e) => {
     e.preventDefault();
     const errEl = document.getElementById("res-error");
+    const currentUser = getCurrentUser();
+
+    if (!currentUser) {
+      openAuthModal("login");
+      toast.info("Vui lòng đăng nhập để đặt trước.");
+      return;
+    }
 
     const name = document.getElementById("res-name").value.trim();
     const phone = document.getElementById("res-phone").value.trim();
@@ -181,7 +204,6 @@ const renderPreorderSection = () => {
 
     errEl.style.display = "none";
 
-    const currentUser = getCurrentUser();
     const itemLabel = PREORDER_TYPES.find((t) => t.id === type)?.label || (type === "ga-nguyen-con" ? "Gà nguyên con" : "Vịt nguyên con");
     const safeQty = 1;
     const safePrice = Number.isFinite(price) && price > 0 ? price : 0;
@@ -220,6 +242,12 @@ const renderPreorderSection = () => {
   });
 };
 
+const requirePreorderLogin = () => {
+  if (getCurrentUser()) return;
+  openAuthModal("login");
+  toast.info("Vui lòng đăng nhập để đặt trước.");
+};
+
 const init = async () => {
   await hydrateOnlineData();
   initNavbar();
@@ -227,7 +255,15 @@ const init = async () => {
   renderPreorderSection();
   renderFooter();
   updateCartBadge();
-  window.addEventListener("user:loggedin", () => updateCartBadge());
+  requirePreorderLogin();
+  window.addEventListener("user:loggedin", (event) => {
+    updateCartBadge();
+    const user = event.detail;
+    const nameInput = document.getElementById("res-name");
+    const phoneInput = document.getElementById("res-phone");
+    if (nameInput && !nameInput.value) nameInput.value = user?.name || "";
+    if (phoneInput && !phoneInput.value) phoneInput.value = user?.phone || "";
+  });
 };
 
 document.addEventListener("DOMContentLoaded", init);

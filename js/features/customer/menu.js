@@ -13,15 +13,17 @@ let searchQuery = '';
 
 const CATEGORY_LABELS = {
   all: 'Tất cả',
-  ga: 'Gà', vit: 'Vịt', com: 'Cơm', uong: 'Đồ uống',
+  ga: 'Gà', vit: 'Vịt', bun: 'Bún', mien: 'Miến', chao: 'Cháo', kho: 'Món khô',
 };
 
 const FILTERS = [
   { id: 'all', label: 'Tất cả' },
   { id: 'ga', label: 'Gà' },
   { id: 'vit', label: 'Vịt' },
-  { id: 'com', label: 'Cơm' },
-  { id: 'uong', label: 'Đồ uống' },
+  { id: 'bun', label: 'Bún' },
+  { id: 'mien', label: 'Miến' },
+  { id: 'chao', label: 'Cháo' },
+  { id: 'kho', label: 'Món khô' },
 ];
 
 export const filterMenu = (cat) => {

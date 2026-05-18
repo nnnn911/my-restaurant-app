@@ -14,8 +14,10 @@ const MENU_FILTERS = [
   { id: 'all', label: 'Tất cả' },
   { id: 'ga', label: 'Gà' },
   { id: 'vit', label: 'Vịt' },
-  { id: 'com', label: 'Cơm' },
-  { id: 'uong', label: 'Đồ uống' },
+  { id: 'bun', label: 'Bún' },
+  { id: 'mien', label: 'Miến' },
+  { id: 'chao', label: 'Cháo' },
+  { id: 'kho', label: 'Món khô' },
 ];
 
 const POS_PAYMENT_METHODS = [

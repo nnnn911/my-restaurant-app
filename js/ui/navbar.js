@@ -13,6 +13,8 @@ const NAV_ITEMS = [
   { id: 'about',    label: 'About us', href: 'about.html' },
 ];
 
+const PREORDER_REDIRECT_KEY = 'dongque:postLoginRedirect';
+
 let activeNav = null;
 
 export const initNavbar = (options = {}) => {
@@ -230,6 +232,16 @@ const bindNavbarEvents = () => {
     const link = e.target.closest('[data-nav]');
     if (!link) return;
     const navId = link.dataset.nav;
+
+    if (navId === 'preorder' && !getCurrentUser()) {
+      e.preventDefault();
+      closeMobileNav();
+      sessionStorage.setItem(PREORDER_REDIRECT_KEY, 'preorder.html');
+      openAuthModal('login');
+      import('./toast.js').then(m => m.toast.info('Vui lòng đăng nhập để đặt trước.'));
+      return;
+    }
+
     setActiveNav(navId);
 
     if (navId === 'order') {

@@ -8,8 +8,8 @@
 --
 -- After running this file, run:
 -- 1. supabase/schema.sql
--- 2. supabase/seed.generated.sql
--- 3. Recreate owner/staff/shipper users if needed.
+-- 2. supabase/seed.generated.sql (empty sequence seed)
+-- 3. Create real owner/staff/shipper users in Supabase Auth and public.profiles.
 
 begin;
 

@@ -7,11 +7,12 @@
     "dev": "vite --host 0.0.0.0",
     "build": "vite build",
     "preview": "vite preview --host 0.0.0.0",
-    "seed:sql": "node scripts/generate-seed-sql.mjs"
+    "seed:sql": "node scripts/generate-seed-sql.mjs",
+    "upload:menu-images": "node scripts/upload-menu-images.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.49.8",
+    "chart.js": "^4.5.1",
     "vite": "^6.3.5"
-  },
-  "devDependencies": {}
+  }
 }
