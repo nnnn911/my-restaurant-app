@@ -658,6 +658,8 @@ export const createOrder = (orderData) => {
 export const createOrderOnline = async (orderData) => {
   if (!shouldUseRemote()) return createOrder(orderData);
 
+  const usedVoucherCode = (orderData?.voucherCode || '').toString().trim().toUpperCase();
+  const usedVoucher = usedVoucherCode ? getVouchers().find((voucher) => voucher.code === usedVoucherCode) : null;
   const order = await remoteDataService.createOrder({
     ...orderData,
     pointsEarned: calculateOrderPoints(orderData),
@@ -683,6 +685,20 @@ export const createOrderOnline = async (orderData) => {
         : item
     ));
     saveDb({ ...ensureDb(), menu: updatedMenu });
+  }
+
+  if (usedVoucherCode && (usedVoucher?.source === 'rewards' || usedVoucher?.userId)) {
+    const nextDb = ensureDb();
+    const users = sanitizeUsers(nextDb.users || []).map((user) => (
+      user.id === nextDb.currentUserId
+        ? { ...user, vouchers: (user.vouchers || []).filter((code) => (code || '').toString().toUpperCase() !== usedVoucherCode) }
+        : user
+    ));
+    saveDb({
+      ...nextDb,
+      users,
+      vouchers: getVouchers().filter((voucher) => voucher.code !== usedVoucherCode),
+    });
   }
 
   return order;

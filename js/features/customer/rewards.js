@@ -49,7 +49,7 @@ const renderVoucherList = (vouchers = [], emptyText = 'Chưa có voucher phù h�
   `).join('') : `<div class="empty-state compact"><h3>${escapeHtml(emptyText)}</h3></div>`
 );
 
-export const showRedeemVoucherModal = ({ onRedeemed } = {}) => {
+export const showRedeemVoucherModal = ({ onRedeemed, closeOnRedeemed = false } = {}) => {
   const user = getCurrentUser();
   if (!user) {
     toast.info('Vui lòng đăng nhập để đổi voucher.');
@@ -127,6 +127,11 @@ export const showRedeemVoucherModal = ({ onRedeemed } = {}) => {
     error.style.display = 'none';
     updateNavbarUser();
     toast.success('Đổi voucher thành công.');
+    if (typeof onRedeemed === 'function') onRedeemed(result.voucher);
+    if (closeOnRedeemed) {
+      close();
+      return;
+    }
     resultBox.innerHTML = `
       <div class="redeem-result-label">Mã voucher mới</div>
       <div class="redeem-result-code">${escapeHtml(result.voucher.code)}</div>
@@ -134,7 +139,6 @@ export const showRedeemVoucherModal = ({ onRedeemed } = {}) => {
     `;
     resultBox.style.display = 'block';
     modal.querySelector('#redeem-form').style.display = 'none';
-    if (typeof onRedeemed === 'function') onRedeemed(result.voucher);
   });
 };
 

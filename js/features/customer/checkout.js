@@ -182,6 +182,7 @@ const showCheckoutVoucherModal = ({ subtotal = 0 } = {}) => {
   modal.querySelector('#checkout-open-redeem')?.addEventListener('click', () => {
     close();
     showRedeemVoucherModal({
+      closeOnRedeemed: true,
       onRedeemed: (voucher) => {
         mergeCheckoutDraft({ voucherCode: voucher.code });
         toast.success(`Đã tạo và áp dụng voucher ${voucher.code}.`);
@@ -272,9 +273,8 @@ export const renderCheckoutPage = () => {
 
               <div class="checkout-voucher in-summary">
                 <button class="btn btn-outline btn-block checkout-voucher-trigger" type="button" id="btn-open-voucher-modal">
-                  ${icon('voucher')} ${appliedVoucher ? `Voucher: ${escapeHtml(appliedVoucher.voucher.code)}` : 'Áp dụng voucher'}
+                  ${icon('voucher')} ${appliedVoucher ? `Đã áp dụng: ${escapeHtml(appliedVoucher.voucher.code)}` : 'Áp dụng voucher'}
                 </button>
-                ${appliedVoucher ? `<div class="form-hint" style="margin-top:6px">Đang áp dụng: <strong>${appliedVoucher.voucher.code}</strong></div>` : ''}
               </div>
 
               <div class="checkout-total-stack">

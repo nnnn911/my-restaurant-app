@@ -470,6 +470,7 @@ declare
   order_total integer;
   order_points integer;
   requested_voucher text;
+  is_reward_voucher boolean := false;
   item jsonb;
   created_order public.orders;
 begin
@@ -487,17 +488,19 @@ begin
   order_total := greatest(coalesce((payload ->> 'total')::integer, 0), 0);
   order_points := public.calculate_order_points(order_total);
   requested_voucher := nullif(payload ->> 'voucherCode', '');
+  if requested_voucher is not null then
+    select exists (
+      select 1
+      from public.vouchers v
+      where v.code = requested_voucher
+        and (v.source = 'rewards' or v.owner_user_id is not null)
+    ) into is_reward_voucher;
+  end if;
 
-  if requested_voucher is not null and exists (
+  if requested_voucher is not null and is_reward_voucher and not exists (
     select 1
-    from public.vouchers v
-    where v.code = requested_voucher
-      and (v.source = 'rewards' or v.owner_user_id is not null)
-      and not exists (
-        select 1
-        from public.user_vouchers uv
-        where uv.user_id = auth.uid() and uv.voucher_code = requested_voucher
-      )
+    from public.user_vouchers uv
+    where uv.user_id = auth.uid() and uv.voucher_code = requested_voucher
   ) then
     raise exception 'Voucher này chỉ dùng được cho tài khoản đã đổi.';
   end if;
@@ -567,6 +570,15 @@ begin
     set sold = sold + greatest(coalesce((item ->> 'qty')::integer, 1), 1)
     where id = nullif(item ->> 'id', '');
   end loop;
+
+  if requested_voucher is not null and is_reward_voucher then
+    delete from public.user_vouchers
+    where user_id = auth.uid() and voucher_code = requested_voucher;
+
+    delete from public.vouchers
+    where code = requested_voucher
+      and (source = 'rewards' or owner_user_id = auth.uid());
+  end if;
 
   return jsonb_build_object(
     'id', created_order.id,
