@@ -161,8 +161,8 @@ const toVoucherRow = (voucher = {}) => ({
   min_order: Number(voucher.minOrder || 0),
   description: (voucher.desc || '').toString(),
   active: Boolean(voucher.active),
-  starts_at: voucher.startsAt || null,
-  expires_at: voucher.expiresAt || null,
+  starts_at: toTimestamptzValue(voucher.startsAt),
+  expires_at: toTimestamptzValue(voucher.expiresAt),
   source: voucher.source || null,
 });
 
@@ -181,6 +181,16 @@ const toMenuRow = (item = {}, sortOrder = 0) => ({
 const normalizePaymentMethod = (method) => {
   const value = (method || 'cash').toString();
   return value === 'transfer' ? 'bank' : value;
+};
+
+const toTimestamptzValue = (value) => {
+  const raw = (value || '').toString().trim();
+  if (!raw) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw) || /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(raw)) {
+    const date = new Date(raw);
+    return Number.isNaN(date.getTime()) ? raw : date.toISOString();
+  }
+  return raw;
 };
 
 const phoneToAuthEmail = (phone = '') =>
