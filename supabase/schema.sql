@@ -132,6 +132,33 @@ create table if not exists public.order_items (
   created_at timestamptz not null default now()
 );
 
+create table if not exists public.pos_orders (
+  id text primary key,
+  staff_id uuid references public.profiles(id) on delete set null,
+  customer_name text not null default 'Khách tại quán',
+  customer_phone text,
+  note text not null default '',
+  payment_method public.payment_method not null default 'cash',
+  subtotal integer not null default 0 check (subtotal >= 0),
+  discount integer not null default 0 check (discount >= 0),
+  total integer not null default 0 check (total >= 0),
+  status text not null default 'completed',
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.pos_order_items (
+  id uuid primary key default gen_random_uuid(),
+  pos_order_id text not null references public.pos_orders(id) on delete cascade,
+  menu_item_id text references public.menu_items(id) on delete set null,
+  name text not null,
+  price integer not null check (price >= 0),
+  quantity integer not null check (quantity > 0),
+  note text not null default '',
+  category public.menu_category,
+  created_at timestamptz not null default now()
+);
+
 create table if not exists public.reservations (
   id text primary key,
   user_id uuid references public.profiles(id) on delete set null,
@@ -204,6 +231,10 @@ drop trigger if exists orders_touch_updated_at on public.orders;
 create trigger orders_touch_updated_at before update on public.orders
 for each row execute function public.touch_updated_at();
 
+drop trigger if exists pos_orders_touch_updated_at on public.pos_orders;
+create trigger pos_orders_touch_updated_at before update on public.pos_orders
+for each row execute function public.touch_updated_at();
+
 drop trigger if exists reservations_touch_updated_at on public.reservations;
 create trigger reservations_touch_updated_at before update on public.reservations
 for each row execute function public.touch_updated_at();
@@ -264,8 +295,11 @@ begin
       (prefix in ('KH', 'NV', 'CH', 'SP') and not exists (
         select 1 from public.profiles where public_code = candidate
       ))
-      or (prefix in ('ORD-', 'POS-') and not exists (
+      or (prefix = 'ORD-' and not exists (
         select 1 from public.orders where id = candidate
+      ))
+      or (prefix = 'POS-' and not exists (
+        select 1 from public.pos_orders where id = candidate
       ))
       or (prefix = 'RES-' and not exists (
         select 1 from public.reservations where id = candidate
@@ -337,10 +371,7 @@ set search_path = public
 as $$
 declare
   actor_role public.app_role;
-  order_source text;
   order_id text;
-  order_user_id uuid;
-  order_staff_id uuid;
   order_total integer;
   order_points integer;
   item jsonb;
@@ -351,26 +382,10 @@ begin
   end if;
 
   actor_role := public.current_app_role();
-  order_source := coalesce(nullif(payload ->> 'source', ''), 'order');
   order_id := payload ->> 'id';
 
   if order_id is null or order_id = '' then
-    if order_source = 'pos' then
-      order_id := public.next_public_code('POS-', 'pos_order', 4);
-    else
-      order_id := public.next_public_code('ORD-', 'order', 4);
-    end if;
-  end if;
-
-  if order_source = 'pos' then
-    if actor_role not in ('staff', 'owner') then
-      raise exception 'Only staff or owner can create POS orders';
-    end if;
-    order_user_id := null;
-    order_staff_id := auth.uid();
-  else
-    order_user_id := auth.uid();
-    order_staff_id := null;
+    order_id := public.next_public_code('ORD-', 'order', 4);
   end if;
 
   order_total := greatest(coalesce((payload ->> 'total')::integer, 0), 0);
@@ -397,8 +412,8 @@ begin
   )
   values (
     order_id,
-    order_user_id,
-    order_staff_id,
+    auth.uid(),
+    null,
     coalesce(nullif(payload ->> 'customerName', ''), 'Khách hàng'),
     nullif(payload ->> 'customerPhone', ''),
     nullif(payload ->> 'address', ''),
@@ -408,11 +423,8 @@ begin
     greatest(coalesce((payload ->> 'discount')::integer, 0), 0),
     order_total,
     nullif(payload ->> 'voucherCode', ''),
-    order_source,
-    case
-      when order_source = 'pos' then 'completed'
-      else coalesce(nullif(payload ->> 'status', ''), 'pending')
-    end,
+    'order',
+    coalesce(nullif(payload ->> 'status', ''), 'pending'),
     order_points,
     false,
     null
@@ -468,6 +480,110 @@ begin
 end;
 $$;
 
+create or replace function public.create_pos_order(payload jsonb)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  actor_role public.app_role;
+  order_id text;
+  order_total integer;
+  item jsonb;
+  created_order public.pos_orders;
+begin
+  if auth.uid() is null then
+    raise exception 'Authentication required';
+  end if;
+
+  actor_role := public.current_app_role();
+  if actor_role not in ('staff', 'owner') then
+    raise exception 'Only staff or owner can create POS orders';
+  end if;
+
+  order_id := payload ->> 'id';
+  if order_id is null or order_id = '' then
+    order_id := public.next_public_code('POS-', 'pos_order', 4);
+  end if;
+
+  order_total := greatest(coalesce((payload ->> 'total')::integer, 0), 0);
+
+  insert into public.pos_orders (
+    id,
+    staff_id,
+    customer_name,
+    customer_phone,
+    note,
+    payment_method,
+    subtotal,
+    discount,
+    total,
+    status
+  )
+  values (
+    order_id,
+    auth.uid(),
+    coalesce(nullif(payload ->> 'customerName', ''), 'Khách tại quán'),
+    nullif(payload ->> 'customerPhone', ''),
+    coalesce(payload ->> 'note', ''),
+    coalesce(nullif(payload ->> 'paymentMethod', ''), 'cash')::public.payment_method,
+    greatest(coalesce((payload ->> 'subtotal')::integer, 0), 0),
+    greatest(coalesce((payload ->> 'discount')::integer, 0), 0),
+    order_total,
+    coalesce(nullif(payload ->> 'status', ''), 'completed')
+  )
+  returning * into created_order;
+
+  for item in select * from jsonb_array_elements(coalesce(payload -> 'items', '[]'::jsonb))
+  loop
+    insert into public.pos_order_items (
+      pos_order_id,
+      menu_item_id,
+      name,
+      price,
+      quantity,
+      note,
+      category
+    )
+    values (
+      order_id,
+      nullif(item ->> 'id', ''),
+      coalesce(nullif(item ->> 'name', ''), 'Món'),
+      greatest(coalesce((item ->> 'price')::integer, 0), 0),
+      greatest(coalesce((item ->> 'qty')::integer, 1), 1),
+      coalesce(item ->> 'note', ''),
+      nullif(item ->> 'category', '')::public.menu_category
+    );
+
+    update public.menu_items
+    set sold = sold + greatest(coalesce((item ->> 'qty')::integer, 1), 1)
+    where id = nullif(item ->> 'id', '');
+  end loop;
+
+  return jsonb_build_object(
+    'id', created_order.id,
+    'userId', null,
+    'customerName', created_order.customer_name,
+    'customerPhone', created_order.customer_phone,
+    'address', 'Tại quán',
+    'note', created_order.note,
+    'paymentMethod', created_order.payment_method,
+    'subtotal', created_order.subtotal,
+    'discount', created_order.discount,
+    'total', created_order.total,
+    'voucherCode', null,
+    'source', 'pos',
+    'pointsEarned', 0,
+    'pointsAwarded', false,
+    'pointsAwardedAt', null,
+    'status', created_order.status,
+    'createdAt', created_order.created_at,
+    'items', coalesce(payload -> 'items', '[]'::jsonb)
+  );
+end;
+$$;
+
 create or replace function public.update_order_status(order_id text, next_status text)
 returns jsonb
 language plpgsql
@@ -498,13 +614,8 @@ begin
     raise exception 'Insufficient permission';
   end if;
 
-  if target.source = 'pos' and actor_role not in ('staff', 'owner') then
-    raise exception 'Only staff or owner can update POS orders';
-  end if;
-
   if actor_role = 'shipper' and (
-    target.source <> 'order'
-    or not (
+    not (
       (target.status = 'ready' and next_status = 'delivering')
       or (target.status = 'delivering' and next_status in ('completed', 'cancelled'))
     )
@@ -522,7 +633,7 @@ begin
   where id = order_id
   returning * into target;
 
-  if next_status = 'completed' and target.source = 'order' and not target.points_awarded and target.user_id is not null then
+  if next_status = 'completed' and not target.points_awarded and target.user_id is not null then
     awarded_points := public.calculate_order_points(target.total);
     if awarded_points > 0 then
       update public.profiles
@@ -546,6 +657,54 @@ begin
     'pointsAwarded', target.points_awarded,
     'pointsAwardedAt', target.points_awarded_at,
     'deliveredBy', (select public_code from public.profiles where id = target.delivered_by),
+    'updatedAt', target.updated_at
+  );
+end;
+$$;
+
+create or replace function public.update_pos_order_status(order_id text, next_status text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  actor_role public.app_role;
+  target public.pos_orders;
+begin
+  if auth.uid() is null then
+    raise exception 'Authentication required';
+  end if;
+
+  actor_role := public.current_app_role();
+  if actor_role not in ('staff', 'owner') then
+    raise exception 'Only staff or owner can update POS orders';
+  end if;
+
+  select * into target
+  from public.pos_orders
+  where id = order_id
+  for update;
+
+  if not found then
+    raise exception 'POS order not found';
+  end if;
+
+  if target.status = 'cancelled' or next_status not in ('completed', 'cancelled') then
+    raise exception 'Invalid POS status update';
+  end if;
+
+  update public.pos_orders
+  set status = next_status
+  where id = order_id
+  returning * into target;
+
+  return jsonb_build_object(
+    'id', target.id,
+    'status', target.status,
+    'pointsEarned', 0,
+    'pointsAwarded', false,
+    'pointsAwardedAt', null,
     'updatedAt', target.updated_at
   );
 end;
@@ -731,6 +890,8 @@ create index if not exists idx_orders_user_created_at on public.orders(user_id, 
 create index if not exists idx_orders_status_created_at on public.orders(status, created_at desc);
 create index if not exists idx_orders_source_created_at on public.orders(source, created_at desc);
 create index if not exists idx_order_items_order_id on public.order_items(order_id);
+create index if not exists idx_pos_orders_status_created_at on public.pos_orders(status, created_at desc);
+create index if not exists idx_pos_order_items_order_id on public.pos_order_items(pos_order_id);
 create index if not exists idx_reservations_user_created_at on public.reservations(user_id, created_at desc);
 create index if not exists idx_reservations_status_needed_date on public.reservations(status, needed_date);
 create index if not exists idx_cart_items_cart_id on public.cart_items(cart_id);
@@ -743,6 +904,8 @@ alter table public.carts enable row level security;
 alter table public.cart_items enable row level security;
 alter table public.orders enable row level security;
 alter table public.order_items enable row level security;
+alter table public.pos_orders enable row level security;
+alter table public.pos_order_items enable row level security;
 alter table public.reservations enable row level security;
 alter table public.app_sequences enable row level security;
 
@@ -884,6 +1047,20 @@ with check (exists (
   where o.id = order_items.order_id
   and (o.user_id = (select auth.uid()) or public.is_staff_or_owner())
 ));
+
+drop policy if exists "pos_orders_staff_owner" on public.pos_orders;
+create policy "pos_orders_staff_owner"
+on public.pos_orders for all
+to authenticated
+using (public.is_staff_or_owner())
+with check (public.is_staff_or_owner());
+
+drop policy if exists "pos_order_items_staff_owner" on public.pos_order_items;
+create policy "pos_order_items_staff_owner"
+on public.pos_order_items for all
+to authenticated
+using (public.is_staff_or_owner())
+with check (public.is_staff_or_owner());
 
 drop policy if exists "reservations_select_own_or_staff" on public.reservations;
 create policy "reservations_select_own_or_staff"

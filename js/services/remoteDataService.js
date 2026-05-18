@@ -67,6 +67,29 @@ const mapOrder = (row = {}) => ({
   createdAt: row.created_at || '',
 });
 
+const mapPosOrder = (row = {}) => ({
+  id: row.id,
+  userId: row.staff_profile?.public_code || row.staff_id || 'staff',
+  customerName: row.customer_name || 'Khách tại quán',
+  customerPhone: row.customer_phone || '',
+  address: 'Tại quán',
+  note: row.note || '',
+  paymentMethod: row.payment_method || 'cash',
+  items: (row.pos_order_items || []).map(mapOrderItem),
+  subtotal: Number(row.subtotal || 0),
+  discount: Number(row.discount || 0),
+  total: Number(row.total || 0),
+  voucherCode: null,
+  source: 'pos',
+  pointsEarned: 0,
+  pointsAwarded: false,
+  pointsAwardedAt: null,
+  status: row.status || 'completed',
+  deliveredBy: null,
+  updatedAt: row.updated_at || '',
+  createdAt: row.created_at || '',
+});
+
 const mapReservation = (row = {}) => ({
   id: row.id,
   userId: row.profile?.public_code || row.user_profile?.public_code || row.user_id || null,
@@ -358,7 +381,17 @@ export const remoteDataService = {
       .select('*, profile:profiles!orders_user_id_fkey(public_code), delivered_by_profile:profiles!orders_delivered_by_fkey(public_code), order_items(*)')
       .order('created_at', { ascending: false });
     if (error) throw error;
-    return (data || []).map(mapOrder);
+
+    const { data: posData, error: posError } = await client
+      .from('pos_orders')
+      .select('*, staff_profile:profiles!pos_orders_staff_id_fkey(public_code), pos_order_items(*)')
+      .order('created_at', { ascending: false });
+    const posOrders = posError ? [] : (posData || []).map(mapPosOrder);
+
+    return [
+      ...(data || []).map(mapOrder),
+      ...posOrders,
+    ].sort((a, b) => new Date(b?.createdAt || 0).getTime() - new Date(a?.createdAt || 0).getTime());
   },
 
   async createOrder(orderData = {}) {
@@ -375,13 +408,45 @@ export const remoteDataService = {
         category: item.category || null,
       })),
     };
-    const { data, error } = await client.rpc('create_order', { payload });
+    const rpcName = payload.source === 'pos' ? 'create_pos_order' : 'create_order';
+    const { data, error } = await client.rpc(rpcName, { payload });
     if (error) throw error;
     return mapRpcOrder(data || {});
   },
 
   async saveOrder(order = {}) {
     const client = requireSupabase();
+    if ((order.source || '').toString() === 'pos') {
+      const orderRow = {
+        id: order.id,
+        customer_name: order.customerName || 'Khách tại quán',
+        customer_phone: order.customerPhone || '',
+        note: order.note || '',
+        payment_method: normalizePaymentMethod(order.paymentMethod),
+        subtotal: Number(order.subtotal || 0),
+        discount: Number(order.discount || 0),
+        total: Number(order.total || 0),
+        status: order.status || 'completed',
+      };
+      const { error: orderError } = await client.from('pos_orders').upsert(orderRow, { onConflict: 'id' });
+      if (orderError) throw orderError;
+      const { error: deleteError } = await client.from('pos_order_items').delete().eq('pos_order_id', order.id);
+      if (deleteError) throw deleteError;
+      const rows = (order.items || []).map((item) => ({
+        pos_order_id: order.id,
+        menu_item_id: item.id || null,
+        name: item.name || 'Món',
+        price: Number(item.price || 0),
+        quantity: Number(item.qty || 1),
+        note: item.note || '',
+        category: item.category || null,
+      }));
+      if (!rows.length) return;
+      const { error } = await client.from('pos_order_items').insert(rows);
+      if (error) throw error;
+      return;
+    }
+
     const profile = await this.getCurrentProfile();
     const orderRow = {
       id: order.id,
@@ -424,7 +489,9 @@ export const remoteDataService = {
 
   async saveOrders(orders = []) {
     const client = requireSupabase();
-    const rows = (Array.isArray(orders) ? orders : []).map((order) => ({
+    const normalOrders = (Array.isArray(orders) ? orders : []).filter((order) => (order.source || '').toString() !== 'pos');
+    const posOrders = (Array.isArray(orders) ? orders : []).filter((order) => (order.source || '').toString() === 'pos');
+    const rows = normalOrders.map((order) => ({
       id: order.id,
       customer_name: order.customerName || 'Khách hàng',
       customer_phone: order.customerPhone || '',
@@ -441,14 +508,17 @@ export const remoteDataService = {
       points_awarded: Boolean(order.pointsAwarded),
       points_awarded_at: order.pointsAwardedAt || null,
     }));
-    if (!rows.length) return;
-    const { error } = await client.from('orders').upsert(rows, { onConflict: 'id' });
-    if (error) throw error;
+    if (rows.length) {
+      const { error } = await client.from('orders').upsert(rows, { onConflict: 'id' });
+      if (error) throw error;
+    }
+    for (const order of posOrders) await this.saveOrder(order);
   },
 
   async updateOrderStatus(orderId, nextStatus) {
     const client = requireSupabase();
-    const { data, error } = await client.rpc('update_order_status', {
+    const isPos = /^POS-/.test((orderId || '').toString());
+    const { data, error } = await client.rpc(isPos ? 'update_pos_order_status' : 'update_order_status', {
       order_id: orderId,
       next_status: nextStatus,
     });
@@ -513,6 +583,8 @@ export const remoteDataService = {
       .channel(`business-changes-${Date.now()}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, onChange)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'order_items' }, onChange)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'pos_orders' }, onChange)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'pos_order_items' }, onChange)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'reservations' }, onChange)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'menu_items' }, onChange)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'vouchers' }, onChange)

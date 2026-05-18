@@ -2859,9 +2859,13 @@ input[type="number"] {
    SHIPPER MOBILE
 ============================================ */
 .shipper-page {
-  min-height: calc(100vh - var(--navbar-height));
-  min-height: calc(100svh - var(--navbar-height));
+  min-height: calc(100vh - var(--navbar-height-mobile));
+  min-height: calc(100svh - var(--navbar-height-mobile));
   background: var(--color-bg);
+}
+
+.shipper-navbar {
+  height: var(--navbar-height-mobile);
 }
 
 .shipper-navbar .navbar-actions {
@@ -2869,7 +2873,26 @@ input[type="number"] {
 }
 
 .shipper-navbar .navbar-inner {
-  grid-template-columns: auto 1fr auto;
+  position: relative;
+  grid-template-columns: 44px 1fr 44px;
+  padding: 0 var(--space-4);
+}
+
+.shipper-navbar .navbar-nav,
+.shipper-navbar .navbar-actions {
+  display: none;
+}
+
+.shipper-navbar .hamburger-btn {
+  display: flex;
+}
+
+.shipper-navbar .navbar-logo {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  justify-self: center;
+  max-width: calc(100% - 140px);
 }
 
 .shipper-login,
@@ -2881,8 +2904,8 @@ input[type="number"] {
 }
 
 .shipper-login {
-  min-height: calc(100vh - var(--navbar-height));
-  min-height: calc(100svh - var(--navbar-height));
+  min-height: calc(100vh - var(--navbar-height-mobile));
+  min-height: calc(100svh - var(--navbar-height-mobile));
   display: flex;
   align-items: center;
 }
@@ -3248,14 +3271,6 @@ input[type="number"] {
   .shipper-login {
     min-height: calc(100vh - var(--navbar-height-mobile));
     min-height: calc(100svh - var(--navbar-height-mobile));
-  }
-
-  .shipper-navbar .navbar-inner {
-    grid-template-columns: 44px 1fr 44px;
-  }
-
-  .shipper-navbar .navbar-logo {
-    justify-self: center;
   }
 
   .shipper-detail-badges {
