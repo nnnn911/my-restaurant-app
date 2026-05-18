@@ -22,16 +22,27 @@ const formatVoucherDateTime = (value) => {
 
 const voucherMetaLines = (voucher = {}) => {
   const minOrder = Number(voucher.minOrder || 0);
-  const expires = voucher.expiresAt ? `HSD ${escapeHtml(formatVoucherDateTime(voucher.expiresAt))}` : 'Không giới hạn hạn dùng';
-  return [
+  const lines = [
     minOrder > 0 ? `Đơn từ ${formatPrice(minOrder)}` : 'Không yêu cầu đơn tối thiểu',
-    expires,
   ];
+  if (voucher.source === 'rewards') {
+    lines.push('Voucher đổi điểm, dùng 1 lần');
+  } else if (voucher.expiresAt) {
+    lines.push(`HSD ${escapeHtml(formatVoucherDateTime(voucher.expiresAt))}`);
+  } else {
+    lines.push('Voucher cửa hàng, chưa đặt hạn dùng');
+  }
+  return lines;
 };
 
 const isVoucherUsable = (voucher = {}) => {
   if (!voucher.active) return false;
   return validateVoucher(voucher.code, Math.max(Number(voucher.minOrder || 0), 1)).ok;
+};
+
+const isOwnedVoucher = (voucher = {}) => {
+  const owned = new Set(getCurrentUserVouchers().map((item) => item.code));
+  return owned.has((voucher.code || '').toString().toUpperCase());
 };
 
 const renderVoucherList = (vouchers = [], emptyText = 'Chưa có voucher phù hợp') => (
@@ -148,7 +159,9 @@ export const renderRewardsPage = () => {
   const user = getCurrentUser();
   const points = Number(user?.points || 0);
   const valueInVND = points * 1000;
-  const allApplicable = getVouchers().filter(isVoucherUsable);
+  const allApplicable = getVouchers()
+    .filter((voucher) => !(voucher.source === 'rewards' || voucher.userId) || isOwnedVoucher(voucher))
+    .filter(isVoucherUsable);
   const ownedVouchers = getCurrentUserVouchers().filter((voucher) => voucher.active);
   const visibleVouchers = [...ownedVouchers, ...allApplicable]
     .filter((voucher, index, vouchers) => (

@@ -4,7 +4,7 @@
 import {
   getCart, getCartTotal, createOrder, clearCart,
   getCurrentUser, calculateOrderPoints, formatPrice, incrementMenuSoldCounts,
-  getCurrentUserVouchers,
+  getCurrentUserVouchers, getVouchers,
   validateVoucher, getCheckoutDraft, clearCheckoutDraft, setCheckoutDraft,
   createOrderOnline
 } from '../../data/store.js';
@@ -84,6 +84,14 @@ const getAppliedVoucherFromDraft = (subtotal) => {
 const voucherValueLabel = (voucher = {}) =>
   voucher.type === 'percent' ? `${Number(voucher.value || 0)}%` : formatPrice(Number(voucher.value || 0));
 
+const getAvailableCustomerVouchers = (subtotal = 0) => {
+  const owned = getCurrentUserVouchers();
+  const publicVouchers = getVouchers().filter((voucher) => !(voucher.source === 'rewards' || voucher.userId));
+  return [...owned, ...publicVouchers]
+    .filter((voucher, index, vouchers) => vouchers.findIndex((item) => item.code === voucher.code) === index)
+    .filter((voucher) => voucher.active && validateVoucher(voucher.code, Math.max(subtotal, Number(voucher.minOrder || 0), 1)).ok);
+};
+
 const clearCheckoutVoucher = () => {
   const { voucherCode, ...rest } = getCheckoutDraft() || {};
   setCheckoutDraft(rest);
@@ -91,7 +99,7 @@ const clearCheckoutVoucher = () => {
 
 const showCheckoutVoucherModal = ({ subtotal = 0 } = {}) => {
   document.getElementById('checkout-voucher-modal')?.remove();
-  const vouchers = getCurrentUserVouchers().filter((voucher) => voucher.active);
+  const vouchers = getAvailableCustomerVouchers(subtotal);
   const appliedCode = (getCheckoutDraft()?.voucherCode || '').toString().toUpperCase();
   const modal = document.createElement('div');
   modal.className = 'modal-backdrop active';
@@ -113,13 +121,13 @@ const showCheckoutVoucherModal = ({ subtotal = 0 } = {}) => {
               <button class="checkout-voucher-option${voucher.code === appliedCode ? ' selected' : ''}" type="button" data-voucher-select="${escapeAttr(voucher.code)}" ${!result.ok ? 'disabled' : ''}>
                 <span>
                   <strong>${escapeHtml(voucher.code)}</strong>
-                  <small>${escapeHtml(voucher.desc || 'Voucher của bạn')}</small>
+                  <small>${escapeHtml(voucher.desc || (voucher.source === 'rewards' ? 'Voucher của bạn' : 'Voucher cửa hàng'))}</small>
                   ${!result.ok ? `<em>${escapeHtml(result.msg)}</em>` : ''}
                 </span>
                 <b>${voucherValueLabel(voucher)}</b>
               </button>
             `;
-          }).join('') : `<div class="empty-state compact"><h3>Bạn chưa có voucher đã đổi</h3></div>`}
+          }).join('') : `<div class="empty-state compact"><h3>Chưa có voucher phù hợp</h3></div>`}
         </div>
         <div class="form-group" style="margin-top:var(--space-4)">
           <label class="form-label" for="checkout-manual-voucher">Nhập mã voucher thủ công</label>

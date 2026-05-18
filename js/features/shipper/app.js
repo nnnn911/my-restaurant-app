@@ -410,7 +410,6 @@ const showConfirmModal = ({ title, message, confirmText = 'Xác nhận', danger 
       <div class="modal">
         <div class="modal-header">
           <span class="modal-title">${escapeHtml(title)}</span>
-          <button class="modal-close" type="button" data-confirm-cancel aria-label="Đóng">${icon('close')}</button>
         </div>
         <div class="modal-body">
           <p class="shipper-confirm-text">${escapeHtml(message)}</p>
