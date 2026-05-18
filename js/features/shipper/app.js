@@ -5,8 +5,9 @@ import { toast } from '../../ui/toast.js';
 import { getCurrentShipper, loginShipper, logoutShipper } from './auth.js';
 
 const STATUS_MAP = {
-  shipping: { label: 'Đang được giao', class: 'badge-primary' },
-  delivered: { label: 'Hoàn thành', class: 'badge-success' },
+  ready: { label: 'Sẵn sàng giao', class: 'badge-success' },
+  delivering: { label: 'Đang giao', class: 'badge-primary' },
+  completed: { label: 'Thành công', class: 'badge-success' },
   cancelled: { label: 'Đã hủy', class: 'badge-danger' },
 };
 
@@ -32,7 +33,8 @@ const getOrderItemCount = (items = []) =>
 
 const normalizeOrderStatus = (status) => {
   const key = (status || '').toString();
-  if (key === 'confirmed') return 'paid';
+  if (key === 'shipping') return 'delivering';
+  if (key === 'delivered') return 'completed';
   return key;
 };
 
@@ -42,12 +44,18 @@ const getSortedOrders = () =>
     .sort((a, b) => new Date(b?.createdAt || 0).getTime() - new Date(a?.createdAt || 0).getTime());
 
 const getShippingOrders = () =>
-  getSortedOrders().filter((order) => normalizeOrderStatus(order?.status) === 'shipping');
+  getSortedOrders().filter((order) => {
+    if ((order?.source || 'order') !== 'order') return false;
+    const status = normalizeOrderStatus(order?.status);
+    const shipper = getCurrentShipper();
+    if (status === 'ready') return true;
+    return status === 'delivering' && (!shipper?.id || order?.deliveredBy === shipper.id);
+  });
 
 const getHistoryOrders = () =>
   getSortedOrders().filter((order) => {
     const shipper = getCurrentShipper();
-    return ['delivered', 'cancelled'].includes(normalizeOrderStatus(order?.status))
+    return ['completed', 'cancelled'].includes(normalizeOrderStatus(order?.status))
       && (!shipper?.id || order?.deliveredBy === shipper.id);
   });
 
@@ -297,7 +305,9 @@ const orderDetailHtml = (order) => {
   const status = STATUS_MAP[normalizeOrderStatus(order.status)] || { label: 'Đang xử lý', class: 'badge-warning' };
   const payment = getPaymentTag(order.paymentMethod);
   const items = Array.isArray(order.items) ? order.items : [];
-  const isShipping = normalizeOrderStatus(order.status) === 'shipping';
+  const statusKey = normalizeOrderStatus(order.status);
+  const isReady = statusKey === 'ready';
+  const isDelivering = statusKey === 'delivering';
   const isCod = (order.paymentMethod || '').toString() === 'cash';
   const cashNotice = isCod
     ? `Bạn cần thu khách hàng ${formatPrice(Number(order.total || 0))}.`
@@ -365,10 +375,14 @@ const orderDetailHtml = (order) => {
         <div class="shipper-grand-total"><span>Tổng cộng</span><strong>${formatPrice(Number(order.total || 0))}</strong></div>
       </div>
 
-      ${isShipping ? `
+      ${isReady ? `
         <div class="shipper-action-bar">
-          <button class="btn btn-primary btn-lg" type="button" data-shipper-status="delivered">Giao hàng thành công</button>
-          <button class="btn btn-danger btn-lg" type="button" data-shipper-status="cancelled">Giao hàng thất bại</button>
+          <button class="btn btn-primary btn-lg shipper-success-btn" type="button" data-shipper-status="delivering">Giao đơn</button>
+        </div>
+      ` : isDelivering ? `
+        <div class="shipper-action-bar">
+          <button class="btn btn-danger btn-lg shipper-fail-btn" type="button" data-shipper-status="cancelled" aria-label="Giao hàng thất bại">${icon('close')}</button>
+          <button class="btn btn-primary btn-lg shipper-success-btn" type="button" data-shipper-status="completed">Thành công</button>
         </div>
       ` : ''}
     </section>
@@ -388,7 +402,7 @@ const showConfirmModal = ({ title, message, confirmText = 'Xác nhận', danger 
       <div class="modal">
         <div class="modal-header">
           <span class="modal-title">${escapeHtml(title)}</span>
-          <button class="modal-close" type="button" data-confirm-cancel aria-label="Đóng">✕</button>
+          <button class="modal-close" type="button" data-confirm-cancel aria-label="Đóng">${icon('close')}</button>
         </div>
         <div class="modal-body">
           <p class="shipper-confirm-text">${escapeHtml(message)}</p>
@@ -419,7 +433,10 @@ const updateOrderStatus = async (orderId, nextStatus) => {
   const all = getOrders() || [];
   const idx = all.findIndex((order) => order.id === orderId);
   if (idx === -1) return false;
-  if (normalizeOrderStatus(all[idx]?.status) !== 'shipping') return false;
+  const currentStatus = normalizeOrderStatus(all[idx]?.status);
+  const canReceive = currentStatus === 'ready' && nextStatus === 'delivering';
+  const canFinish = currentStatus === 'delivering' && ['completed', 'cancelled'].includes(nextStatus);
+  if (!canReceive && !canFinish) return false;
 
   try {
     const remoteResult = await updateOrderStatusOnline(orderId, nextStatus);
@@ -437,7 +454,7 @@ const updateOrderStatus = async (orderId, nextStatus) => {
   };
   const pointsEarned = calculateOrderPoints(updatedOrder);
 
-  if (nextStatus === 'delivered' && !updatedOrder.pointsAwarded && pointsEarned > 0) {
+  if (nextStatus === 'completed' && !updatedOrder.pointsAwarded && pointsEarned > 0) {
     const awardedUser = addPoints(updatedOrder.userId, pointsEarned);
     if (awardedUser) {
       updatedOrder.pointsEarned = pointsEarned;
@@ -470,11 +487,14 @@ const bindDetail = () => {
     btn.addEventListener('click', async () => {
       const nextStatus = btn.dataset.shipperStatus;
       const isCancel = nextStatus === 'cancelled';
+      const isReceive = nextStatus === 'delivering';
       const ok = await showConfirmModal({
-        title: isCancel ? 'Xác nhận giao hàng thất bại' : 'Xác nhận giao hàng thành công',
-        message: isCancel
+        title: isReceive ? 'Xác nhận nhận giao đơn' : isCancel ? 'Xác nhận giao hàng thất bại' : 'Xác nhận giao hàng thành công',
+        message: isReceive
+          ? 'Đơn hàng sẽ chuyển sang trạng thái đang giao.'
+          : isCancel
           ? 'Đơn hàng sẽ được cập nhật thành bị hủy trên toàn hệ thống.'
-          : 'Đơn hàng sẽ được cập nhật thành hoàn thành trên toàn hệ thống.',
+          : 'Đơn hàng sẽ được cập nhật thành thành công trên toàn hệ thống.',
         confirmText: 'Xác nhận',
         danger: isCancel,
       });
@@ -486,8 +506,8 @@ const bindDetail = () => {
         renderPage();
         return;
       }
-      toast.success(isCancel ? 'Đã cập nhật giao hàng thất bại.' : 'Đã cập nhật giao hàng thành công.');
-      selectedOrderId = null;
+      toast.success(isReceive ? 'Đã nhận giao đơn.' : isCancel ? 'Đã cập nhật giao hàng thất bại.' : 'Đã cập nhật giao hàng thành công.');
+      if (!isReceive) selectedOrderId = null;
       renderPage();
     });
   });

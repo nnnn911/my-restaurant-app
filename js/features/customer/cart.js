@@ -60,7 +60,7 @@ const ensureSidebar = () => {
   sidebarEl.innerHTML = `
     <div class="cart-header">
       <div class="cart-title">Giỏ hàng <span class="cart-count-badge" id="cart-count-badge">0</span></div>
-      <button class="cart-close" id="cart-close-btn" aria-label="Đóng giỏ hàng">✕</button>
+      <button class="cart-close" id="cart-close-btn" aria-label="Đóng giỏ hàng">${icon('close')}</button>
     </div>
     <div class="cart-body" id="cart-body"></div>
     <div class="cart-footer" id="cart-footer"></div>`;
@@ -106,21 +106,37 @@ const renderCartItems = () => {
           <span class="cart-item-price">${formatPrice(item.price * item.qty)}</span>
         </div>
       </div>
-      <button class="cart-item-remove" data-id="${escapeAttr(item.cartId)}" aria-label="Xóa món">✕</button>
+      <button class="cart-item-remove" data-id="${escapeAttr(item.cartId)}" aria-label="Xóa món">${icon('close')}</button>
     </div>`).join('');
 
   // Bind item events
+  const updateItemQuantityUi = (btn, delta) => {
+    const current = getCart().find(c => c.cartId === btn.dataset.id);
+    if (!current) return;
+    const nextCart = updateCartQty(btn.dataset.id, Number(current.qty || 0) + delta);
+    updateCartBadge();
+    const countBadgeEl = document.getElementById('cart-count-badge');
+    if (countBadgeEl) countBadgeEl.textContent = getCartCount();
+    if (!nextCart.some(c => c.cartId === btn.dataset.id)) {
+      renderCartItems();
+      return;
+    }
+    const item = nextCart.find(c => c.cartId === btn.dataset.id);
+    const row = btn.closest('.cart-item');
+    row.querySelector('.qty-value').textContent = Number(item.qty || 0);
+    row.querySelector('.cart-item-price').textContent = formatPrice(Number(item.price || 0) * Number(item.qty || 0));
+    renderCartFooter(footerEl);
+  };
   bodyEl.querySelectorAll('.btn-qty-minus').forEach(btn =>
-    btn.addEventListener('click', () => { updateCartQty(btn.dataset.id, getCart().find(c => c.cartId === btn.dataset.id)?.qty - 1); updateCartBadge(); renderCartItems(); }));
+    btn.addEventListener('click', () => updateItemQuantityUi(btn, -1)));
   bodyEl.querySelectorAll('.btn-qty-plus').forEach(btn =>
-    btn.addEventListener('click', () => { updateCartQty(btn.dataset.id, getCart().find(c => c.cartId === btn.dataset.id)?.qty + 1); updateCartBadge(); renderCartItems(); }));
+    btn.addEventListener('click', () => updateItemQuantityUi(btn, 1)));
   bodyEl.querySelectorAll('.cart-item-remove').forEach(btn =>
     btn.addEventListener('click', () => { removeFromCart(btn.dataset.id); updateCartBadge(); renderCartItems(); }));
   bodyEl.querySelectorAll('.cart-item-note-input').forEach(input => {
     input.addEventListener('change', () => {
       updateCartItemNote(input.dataset.id, input.value);
       updateCartBadge();
-      renderCartItems();
     });
     input.addEventListener('keydown', (event) => {
       if (event.key === 'Enter') input.blur();

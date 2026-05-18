@@ -147,7 +147,7 @@ const openCustomerPointsMenu = (user) => {
     <aside class="staff-profile-panel owner-drawer-panel">
       <div class="staff-profile-header">
         <div class="staff-profile-title">${icon('pen')} Cập nhật điểm</div>
-        <button class="modal-close" id="points-close" aria-label="Đóng">✕</button>
+        <button class="modal-close" id="points-close" aria-label="Đóng">${icon('close')}</button>
       </div>
       <div class="staff-profile-body">
         <div class="staff-profile-info" style="margin-top:0;padding-top:0;border-top:0">

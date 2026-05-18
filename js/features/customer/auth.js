@@ -38,7 +38,7 @@ const createModal = () => {
     <div class="modal" role="document">
       <div class="modal-body" style="padding:var(--space-8)">
         <div class="auth-logo">
-          <img class="auth-logo-icon" src="assets/logos/logo-white.svg" alt="" aria-hidden="true">
+          <img class="auth-logo-icon" src="assets/logos/logo-green.svg" alt="" aria-hidden="true">
           <div class="auth-logo-title">Quán Ăn Đồng Quê</div>
           <div class="auth-logo-sub">Đăng nhập để đặt hàng và tích điểm</div>
         </div>
@@ -160,7 +160,7 @@ const bindAuthEvents = () => {
     if (!isValidPhone(phone)) { showError(errEl, 'Số điện thoại không hợp lệ.'); return; }
     const result = await loginCustomer(phone, pass);
     if (!result.ok) { showError(errEl, result.msg); return; }
-    toast.success(`Chào mừng, ${result.user.name}! 🎉`);
+    toast.success(`Chào mừng, ${result.user.name}!`);
     updateNavbarUser();
     closeAuthModal();
     // Trigger custom event for pages to respond
@@ -182,7 +182,7 @@ const bindAuthEvents = () => {
     if (pass.length < 6) { showError(errEl, 'Mật khẩu phải có ít nhất 6 ký tự.'); return; }
     const result = await registerCustomer({ name, phone, password: pass });
     if (!result.ok) { showError(errEl, result.msg); return; }
-    toast.success('Đăng ký thành công! Chào mừng bạn 🎉');
+    toast.success('Đăng ký thành công! Chào mừng bạn.');
     updateNavbarUser();
     closeAuthModal();
     window.dispatchEvent(new CustomEvent('user:loggedin', { detail: result.user }));
@@ -201,7 +201,7 @@ const redirectAfterLoginIfNeeded = () => {
 const isValidPhone = (phone) => /^(0|\+84)[0-9]{8,10}$/.test(phone.replace(/\s+/g, ''));
 
 const showError = (el, msg) => {
-  el.innerHTML = `<span>⚠️</span> ${msg}`;
+  el.innerHTML = `${icon('warning')} ${msg}`;
   el.style.display = 'flex';
 };
 

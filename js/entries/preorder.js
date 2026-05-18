@@ -4,6 +4,7 @@ import { renderFooter } from '../ui/footer.js';
 import { createReservationOnline, formatPrice, getCurrentUser, getMenu, hydrateOnlineData } from '../data/store.js';
 import { icon } from '../ui/icons.js';
 import { openAuthModal } from '../features/customer/auth.js';
+import { bindSegmentedDateTimeInputs, getDateTimeValue, segmentedDateTimeInput } from '../ui/datetime.js';
 
 const PREORDER_TYPES = [
   { id: "ga-nguyen-con", label: "Gà nguyên con", category: "ga" },
@@ -112,7 +113,7 @@ const renderPreorderSection = () => {
             </div>
             <div class="form-group">
               <label class="form-label" for="res-date">Ngày cần *</label>
-              <input class="form-control" type="text" id="res-date" inputmode="numeric" placeholder="dd/mm/yyyy" autocomplete="off" required>
+              ${segmentedDateTimeInput("res-date", "", { includeTime: false })}
             </div>
           </div>
           <div class="form-group">
@@ -134,8 +135,8 @@ const renderPreorderSection = () => {
     </div>`;
 
   document.querySelector(".page-content")?.appendChild(section);
+  bindSegmentedDateTimeInputs(section);
 
-  const dateInput = document.getElementById("res-date");
   const typeSelect = document.getElementById("res-type");
   const priceSummary = document.getElementById("preorder-price-summary");
 
@@ -150,6 +151,16 @@ const renderPreorderSection = () => {
 
   const parseDateVi = (value) => {
     const v = (value || "").trim();
+    const isoMatch = v.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (isoMatch) {
+      const year = Number(isoMatch[1]);
+      const month = Number(isoMatch[2]);
+      const day = Number(isoMatch[3]);
+      const d = new Date(year, month - 1, day);
+      if (d.getFullYear() !== year || d.getMonth() !== month - 1 || d.getDate() !== day) return null;
+      d.setHours(0, 0, 0, 0);
+      return { date: d, iso: v };
+    }
     const m = v.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})$/);
     if (!m) return null;
     const day = Number(m[1]);
@@ -186,7 +197,7 @@ const renderPreorderSection = () => {
     const type = document.getElementById("res-type").value;
     const typeOption = document.getElementById("res-type")?.selectedOptions?.[0];
     const price = Number(typeOption?.dataset?.price || 0);
-    const parsed = parseDateVi(document.getElementById("res-date").value);
+    const parsed = parseDateVi(getDateTimeValue("res-date") || document.getElementById("res-date").value);
     const note = document.getElementById("res-note").value.trim();
 
     if (!name || !phone || !type || !parsed) {
@@ -230,6 +241,7 @@ const renderPreorderSection = () => {
     }
 
     document.getElementById("reservation-form").reset();
+    document.getElementById("res-date")?._flatpickr?.clear();
 
     toast.success("Đã gửi yêu cầu đặt trước!");
 

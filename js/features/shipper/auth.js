@@ -7,15 +7,15 @@ const SHIPPER_CURRENT_KEY = 'dq_shipper_current';
 
 const nowIso = () => new Date().toISOString();
 const normalizePhone = (phone = '') => phone.toString().trim().replace(/\s+/g, '');
-const isShipperId = (id) => /^D\d{5}$/.test((id || '').toString());
-const formatShipperId = (n) => `D${String(n).padStart(5, '0').slice(-5)}`;
+const isShipperId = (id) => /^SP\d{5}$/.test((id || '').toString());
+const formatShipperId = (n) => `SP${String(n).padStart(5, '0').slice(-5)}`;
 
 const isLegacyShipperSeed = (user = {}) =>
-  user.id === 'D00000';
+  user.id === 'D00000' || user.id === 'SP00000';
 
 const sanitizeShippers = (users = []) => {
   const used = new Set();
-  let next = 0;
+  let next = 1;
 
   const nextId = () => {
     while (used.has(formatShipperId(next))) next += 1;

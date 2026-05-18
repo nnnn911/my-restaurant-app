@@ -22,6 +22,7 @@ import {
   escapeHtml
 } from './common.js';
 import { toast } from '../../ui/toast.js';
+import { bindSegmentedDateTimeInputs, getDateTimeValue, segmentedDateTimeInput } from '../../ui/datetime.js';
 
 let searchQuery = '';
 let voucherFilter = 'all';
@@ -127,11 +128,11 @@ const renderVoucherForm = (v) => {
         </div>
         <div class="form-group">
           <label class="form-label" for="voucher-start">Bắt đầu</label>
-          <input class="form-control" id="voucher-start" type="datetime-local" value="${escapeAttr(toDateTimeLocal(v.startsAt))}">
+          ${segmentedDateTimeInput('voucher-start', toDateTimeLocal(v.startsAt))}
         </div>
         <div class="form-group">
           <label class="form-label" for="voucher-exp">Kết thúc</label>
-          <input class="form-control" id="voucher-exp" type="datetime-local" value="${escapeAttr(toDateTimeLocal(v.expiresAt))}">
+          ${segmentedDateTimeInput('voucher-exp', toDateTimeLocal(v.expiresAt))}
         </div>
         <div class="form-group">
           <label class="form-label" for="voucher-active">Trạng thái</label>
@@ -154,6 +155,7 @@ const renderVoucherForm = (v) => {
 };
 
 const bindVoucherForm = (closeDrawer) => {
+  bindSegmentedDateTimeInputs(document.getElementById('voucher-form') || document);
   document.getElementById('voucher-form')?.addEventListener('submit', (e) => {
     e.preventDefault();
     const oldCode = e.currentTarget.dataset.code;
@@ -174,8 +176,8 @@ const bindVoucherForm = (closeDrawer) => {
       type: document.getElementById('voucher-type').value,
       value,
       minOrder,
-      startsAt: document.getElementById('voucher-start').value,
-      expiresAt: document.getElementById('voucher-exp').value,
+      startsAt: getDateTimeValue('voucher-start'),
+      expiresAt: getDateTimeValue('voucher-exp'),
       desc: document.getElementById('voucher-desc').value.trim(),
       active: document.getElementById('voucher-active').value === 'active',
     } : v);
@@ -224,7 +226,7 @@ const openCreateVoucherDrawer = () => {
     <aside class="staff-profile-panel owner-drawer-panel">
       <div class="staff-profile-header">
         <div class="staff-profile-title">${icon('cart')} Tạo voucher mới</div>
-        <button class="modal-close" id="create-close" aria-label="Đóng">✕</button>
+        <button class="modal-close" id="create-close" aria-label="Đóng">${icon('close')}</button>
       </div>
       <div class="staff-profile-body">
         <form class="owner-form" id="create-voucher-form">
@@ -250,11 +252,11 @@ const openCreateVoucherDrawer = () => {
             </div>
             <div class="form-group">
               <label class="form-label" for="new-voucher-start">Bắt đầu</label>
-              <input class="form-control" id="new-voucher-start" type="datetime-local" value="">
+              ${segmentedDateTimeInput('new-voucher-start', '')}
             </div>
             <div class="form-group">
               <label class="form-label" for="new-voucher-exp">Kết thúc</label>
-              <input class="form-control" id="new-voucher-exp" type="datetime-local" value="2026-12-31T23:59">
+              ${segmentedDateTimeInput('new-voucher-exp', '2026-12-31T23:59')}
             </div>
             <div class="form-group">
               <label class="form-label" for="new-voucher-active">Trạng thái</label>
@@ -290,6 +292,7 @@ const openCreateVoucherDrawer = () => {
   });
   document.getElementById('create-close')?.addEventListener('click', close);
   document.getElementById('create-cancel')?.addEventListener('click', close);
+  bindSegmentedDateTimeInputs(drawer);
   document.getElementById('create-voucher-form')?.addEventListener('submit', (e) => {
     e.preventDefault();
     const code = document.getElementById('new-voucher-code')?.value.trim().toUpperCase();
@@ -309,8 +312,8 @@ const openCreateVoucherDrawer = () => {
       type: document.getElementById('new-voucher-type')?.value || 'fixed',
       value,
       minOrder,
-      startsAt: document.getElementById('new-voucher-start')?.value || '',
-      expiresAt: document.getElementById('new-voucher-exp')?.value || '',
+      startsAt: getDateTimeValue('new-voucher-start'),
+      expiresAt: getDateTimeValue('new-voucher-exp'),
       desc: document.getElementById('new-voucher-desc')?.value.trim() || '',
       active: (document.getElementById('new-voucher-active')?.value || 'active') === 'active',
     };

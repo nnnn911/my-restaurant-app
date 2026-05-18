@@ -97,7 +97,7 @@ const createPosOrder = async ({ staff, cart, payment }) => {
     total: subtotalNow,
     voucherCode: null,
     source: 'pos',
-    status: 'placed',
+    status: 'completed',
     });
   } catch (error) {
     toast.error(error?.message || 'Không thể tạo đơn POS online.');
@@ -203,7 +203,7 @@ const updatePosMenuUI = (query = null) => {
   if (!filtered.length) {
     grid.innerHTML = `
       <div class="empty-state" style="grid-column:1/-1">
-        <div class="empty-state-icon">🍽️</div>
+        <div class="empty-state-icon">${icon('menu', 'Thực đơn')}</div>
         <h3>Không tìm thấy món</h3>
         <p>Thử từ khoá khác.</p>
       </div>`;
@@ -458,7 +458,7 @@ const renderLogin = () => {
 
     const result = await loginStaff(phone, password);
     if (!result.ok) {
-      errEl.textContent = `⚠️ ${result.msg}`;
+      errEl.innerHTML = `${icon('warning')} ${result.msg}`;
       errEl.style.display = 'flex';
       return;
     }
@@ -642,7 +642,7 @@ const renderPos = () => {
 
     const freshCart = getPosCart();
     if (!freshCart.length) {
-      errEl.textContent = '⚠️ Giỏ POS đang trống.';
+      errEl.innerHTML = `${icon('warning')} Giỏ POS đang trống.`;
       errEl.style.display = 'flex';
       return;
     }
@@ -674,7 +674,7 @@ const showPosSuccess = (order) => {
           <div class="order-number">Mã đơn: ${order.id}</div>
           <p>Đơn đã được lưu vào hệ thống để theo dõi trạng thái.</p>
           <div style="display:flex;gap:var(--space-3);margin-top:var(--space-6);justify-content:center;flex-wrap:wrap">
-            <a class="btn btn-outline" href="admin-order.html">Xem danh sách đơn</a>
+            <a class="btn btn-outline" href="admin-pos-orders.html">Xem đơn tại quán</a>
             <button class="btn btn-primary" id="pos-success-close">Tiếp tục</button>
           </div>
         </div>
@@ -697,7 +697,7 @@ const showPosSuccess = (order) => {
 };
 
 document.addEventListener('DOMContentLoaded', async () => {
-  await hydrateOnlineData();
   ensureStaffUsers();
   renderPos();
+  hydrateOnlineData().then(() => renderPos()).catch(() => {});
 });

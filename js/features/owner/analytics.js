@@ -19,6 +19,7 @@ import {
 } from './common.js';
 import { getReservations } from '../../data/store.js';
 import { toast } from '../../ui/toast.js';
+import { bindSegmentedDateTimeInputs, getDateTimeValue, segmentedDateTimeInput } from '../../ui/datetime.js';
 import Chart from 'chart.js/auto';
 
 let analyticsRange = '7d';
@@ -50,15 +51,10 @@ const REPORT_SHEET_PAGE_SIZE = 20;
 
 const ORDER_STATUS = {
   pending: { label: 'Chờ xác nhận', className: 'badge-warning' },
-  placed: { label: 'Đã đặt', className: 'badge-primary' },
-  paid: { label: 'Đã thanh toán', className: 'badge-success' },
-  confirmed: { label: 'Đã xác nhận', className: 'badge-primary' },
-  preparing: { label: 'Đang làm', className: 'badge-warning' },
+  preparing: { label: 'Đang thực hiện', className: 'badge-warning' },
   ready: { label: 'Sẵn sàng', className: 'badge-success' },
-  shipping: { label: 'Đang giao', className: 'badge-primary' },
-  delivered: { label: 'Hoàn thành', className: 'badge-primary' },
-  done: { label: 'Hoàn thành', className: 'badge-primary' },
-  preorder: { label: 'Đặt trước', className: 'badge-accent' },
+  delivering: { label: 'Đang giao', className: 'badge-primary' },
+  completed: { label: 'Thành công', className: 'badge-success' },
   cancelled: { label: 'Đã huỷ', className: 'badge-danger' },
 };
 
@@ -76,7 +72,7 @@ const ORDER_TYPE_LABELS = {
   pos: 'POS',
 };
 
-const SUCCESS_REVENUE_STATUSES = new Set(['delivered', 'done']);
+const SUCCESS_REVENUE_STATUSES = new Set(['completed']);
 
 const pad2 = (n) => String(n).padStart(2, '0');
 const toInputDate = (date) => `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
@@ -167,7 +163,14 @@ const orderItemsSummary = (order) => {
   return `${order.itemQty.toLocaleString('vi-VN')} món${itemsText ? `: ${itemsText}` : ''}`;
 };
 
-const getStatusMeta = (status) => ORDER_STATUS[(status || '').toString()] || { label: status || 'Chưa rõ', className: 'badge-muted' };
+const normalizeStatusKey = (status) => {
+  const key = (status || '').toString();
+  if (['paid', 'confirmed', 'placed'].includes(key)) return 'pending';
+  if (key === 'shipping') return 'delivering';
+  if (['delivered', 'done'].includes(key)) return 'completed';
+  return key;
+};
+const getStatusMeta = (status) => ORDER_STATUS[normalizeStatusKey(status)] || { label: status || 'Chưa rõ', className: 'badge-muted' };
 const statusBadge = (status) => {
   const meta = getStatusMeta(status);
   return `<span class="badge ${meta.className}">${escapeHtml(meta.label)}</span>`;
@@ -386,7 +389,7 @@ const normalizeOrder = (order = {}) => {
     total: Number.isFinite(total) ? total : 0,
     discount: Number(order.discount || 0),
     paymentMethod: order.paymentMethod || 'cash',
-    status: order.status || 'paid',
+    status: order.status || 'pending',
   };
 };
 
@@ -536,8 +539,8 @@ const timeFilterHtml = ({ includeAll = false } = {}) => {
           </button>
           ${analyticsCustomMenuOpen ? `
             <div class="owner-custom-filter-menu" role="menu">
-              <label>Ngày bắt đầu<input class="form-control" id="analytics-start" type="date" value="${escapeAttr(analyticsCustomStart || toInputDate(range.start))}"></label>
-              <label>Ngày kết thúc<input class="form-control" id="analytics-end" type="date" value="${escapeAttr(analyticsCustomEnd || toInputDate(range.end))}"></label>
+              <label>Ngày bắt đầu${segmentedDateTimeInput('analytics-start', analyticsCustomStart || toInputDate(range.start), { includeTime: false })}</label>
+              <label>Ngày kết thúc${segmentedDateTimeInput('analytics-end', analyticsCustomEnd || toInputDate(range.end), { includeTime: false })}</label>
               <button class="btn btn-primary btn-sm" id="analytics-apply-custom" type="button">Áp dụng</button>
             </div>
           ` : ''}
@@ -969,6 +972,7 @@ const syncReportTabsNav = () => {
 };
 
 const bindAnalyticsFilters = ({ bindRange = true } = {}) => {
+  bindSegmentedDateTimeInputs(document.querySelector('.owner-analytics-filter') || document);
   mountOwnerCharts();
   if (analyticsFirstPaint) {
     analyticsFirstPaint = false;
@@ -994,8 +998,8 @@ const bindAnalyticsFilters = ({ bindRange = true } = {}) => {
     rerenderOwnerPage();
   });
   document.getElementById('analytics-apply-custom')?.addEventListener('click', () => {
-    const start = document.getElementById('analytics-start')?.value || '';
-    const end = document.getElementById('analytics-end')?.value || '';
+    const start = getDateTimeValue('analytics-start');
+    const end = getDateTimeValue('analytics-end');
     if (!start || !end) {
       toast.error('Vui lòng chọn đủ ngày bắt đầu và kết thúc.');
       return;

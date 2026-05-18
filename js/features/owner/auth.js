@@ -1,6 +1,6 @@
 /**
  * ownerAuth.js - Store owner auth stored in LocalStorage
- * Schema mirrors staff accounts, but ids use A00000 format.
+ * Schema mirrors staff accounts, but ids use CH00001 format.
  */
 
 import { readJson, removeStorageKey, writeJson, writeJsonIfChanged } from '../../core/storage.js';
@@ -13,16 +13,16 @@ let ownerUsersReady = false;
 
 const nowIso = () => new Date().toISOString();
 const normalizePhone = (phone = '') => phone.toString().trim().replace(/\s+/g, '');
-const isOwnerId = (id) => /^A\d{5}$/.test((id || '').toString());
-const formatOwnerId = (n) => `A${String(n).padStart(5, '0').slice(-5)}`;
+const isOwnerId = (id) => /^CH\d{5}$/.test((id || '').toString());
+const formatOwnerId = (n) => `CH${String(n).padStart(5, '0').slice(-5)}`;
 
 const isLegacyOwnerSeed = (user = {}) =>
-  user.id === 'A00000';
+  user.id === 'A00000' || user.id === 'CH00000';
 
 const sanitizeOwnerUsers = (users = []) => {
   const source = (Array.isArray(users) ? users : []).filter((user) => !isLegacyOwnerSeed(user));
   const used = new Set();
-  let next = 0;
+  let next = 1;
 
   const nextId = () => {
     while (used.has(formatOwnerId(next))) next += 1;

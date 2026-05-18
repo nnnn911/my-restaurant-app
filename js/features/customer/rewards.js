@@ -71,7 +71,7 @@ export const showRedeemVoucherModal = ({ onRedeemed } = {}) => {
     <div class="modal" style="max-width:440px">
       <div class="modal-header">
         <span class="modal-title">${icon('voucher')} Đổi voucher</span>
-        <button class="modal-close" id="redeem-close" aria-label="Đóng">✕</button>
+        <button class="modal-close" id="redeem-close" aria-label="Đóng">${icon('close')}</button>
       </div>
       <div class="modal-body">
         <div class="redeem-summary">

@@ -61,7 +61,7 @@ const mapOrder = (row = {}) => ({
   pointsEarned: Number(row.points_earned || 0),
   pointsAwarded: Boolean(row.points_awarded),
   pointsAwardedAt: row.points_awarded_at || null,
-  status: row.status || 'paid',
+  status: row.status || 'pending',
   deliveredBy: row.delivered_by_profile?.public_code || row.delivered_by || null,
   updatedAt: row.updated_at || '',
   createdAt: row.created_at || '',
@@ -80,6 +80,10 @@ const mapReservation = (row = {}) => ({
   date: row.needed_date || '',
   note: row.note || '',
   status: row.status || 'pending',
+  staffCreated: Boolean(row.staff_created),
+  pointsEarned: Number(row.points_earned || 0),
+  pointsAwarded: Boolean(row.points_awarded),
+  pointsAwardedAt: row.points_awarded_at || null,
   updatedAt: row.updated_at || '',
   createdAt: row.created_at || '',
 });
@@ -101,7 +105,8 @@ const mapRpcOrder = (row = {}) => ({
   pointsEarned: Number(row.pointsEarned || 0),
   pointsAwarded: Boolean(row.pointsAwarded),
   pointsAwardedAt: row.pointsAwardedAt || null,
-  status: row.status || 'paid',
+  status: row.status || 'pending',
+  deliveredBy: row.deliveredBy || null,
   updatedAt: row.updatedAt || '',
   createdAt: row.createdAt || '',
 });
@@ -119,6 +124,10 @@ const mapRpcReservation = (row = {}) => ({
   date: row.date || '',
   note: row.note || '',
   status: row.status || 'pending',
+  staffCreated: Boolean(row.staffCreated),
+  pointsEarned: Number(row.pointsEarned || 0),
+  pointsAwarded: Boolean(row.pointsAwarded),
+  pointsAwardedAt: row.pointsAwardedAt || null,
   createdAt: row.createdAt || '',
 });
 
@@ -387,7 +396,7 @@ export const remoteDataService = {
       total: Number(order.total || 0),
       voucher_code: order.voucherCode || null,
       source: order.source || 'order',
-      status: order.status || 'paid',
+      status: order.status || 'pending',
       points_earned: Number(order.pointsEarned || 0),
       points_awarded: Boolean(order.pointsAwarded),
       points_awarded_at: order.pointsAwardedAt || null,
@@ -427,7 +436,7 @@ export const remoteDataService = {
       total: Number(order.total || 0),
       voucher_code: order.voucherCode || null,
       source: order.source || 'order',
-      status: order.status || 'paid',
+      status: order.status || 'pending',
       points_earned: Number(order.pointsEarned || 0),
       points_awarded: Boolean(order.pointsAwarded),
       points_awarded_at: order.pointsAwardedAt || null,
@@ -441,6 +450,16 @@ export const remoteDataService = {
     const client = requireSupabase();
     const { data, error } = await client.rpc('update_order_status', {
       order_id: orderId,
+      next_status: nextStatus,
+    });
+    if (error) throw error;
+    return data;
+  },
+
+  async updateReservationStatus(reservationId, nextStatus) {
+    const client = requireSupabase();
+    const { data, error } = await client.rpc('update_reservation_status', {
+      reservation_id: reservationId,
       next_status: nextStatus,
     });
     if (error) throw error;
@@ -478,6 +497,10 @@ export const remoteDataService = {
       needed_date: item.date,
       note: item.note || '',
       status: item.status || 'pending',
+      staff_created: Boolean(item.staffCreated),
+      points_earned: Number(item.pointsEarned || 0),
+      points_awarded: Boolean(item.pointsAwarded),
+      points_awarded_at: item.pointsAwardedAt || null,
     }));
     if (!rows.length) return;
     const { error } = await client.from('reservations').upsert(rows, { onConflict: 'id' });

@@ -297,6 +297,11 @@
   transition: background var(--transition-fast);
 }
 .cart-close:hover { background: rgba(255,255,255,0.25); }
+.cart-close .app-icon {
+  width: 18px;
+  height: 18px;
+  filter: brightness(0) invert(1);
+}
 
 .cart-body {
   flex: 1;
@@ -368,16 +373,22 @@
   color: var(--color-primary-600);
 }
 .cart-item-remove {
-  font-size: 1.5rem;
-  color: var(--color-danger);
+  align-self: flex-start;
+  width: 30px;
+  height: 30px;
   cursor: pointer;
   border: none;
   background: none;
-  padding: 2px 6px;
+  padding: 5px;
   border-radius: var(--radius-sm);
   transition: background var(--transition-fast);
 }
 .cart-item-remove:hover { background: #fee2e2; }
+.cart-item-remove .app-icon {
+  width: 20px;
+  height: 20px;
+  filter: invert(20%) sepia(86%) saturate(2674%) hue-rotate(344deg) brightness(88%) contrast(90%);
+}
 
 .cart-footer {
   padding: var(--space-4) var(--space-5);
@@ -625,6 +636,49 @@
   color: var(--color-text-muted);
   margin-bottom: var(--space-3);
 }
+.order-info-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+.order-info-item {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  gap: 2px var(--space-2);
+  align-items: start;
+  min-width: 0;
+  padding: var(--space-3);
+  background: var(--color-beige-50);
+  border: 1px solid var(--color-beige-100);
+  border-radius: var(--radius-md);
+}
+.order-info-item .app-icon {
+  grid-row: 1 / span 2;
+  width: 18px;
+  height: 18px;
+  margin-top: 1px;
+}
+.order-info-item span {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+  line-height: 1.2;
+}
+.order-info-item strong {
+  min-width: 0;
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
+  line-height: 1.35;
+}
+.order-info-wide {
+  grid-column: 1 / -1;
+}
+.order-meta-note {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
 .order-items-detail {
   display: flex;
   flex-direction: column;
@@ -705,6 +759,9 @@
   }
   .order-detail-item {
     grid-template-columns: 48px 1fr;
+  }
+  .order-info-grid {
+    grid-template-columns: 1fr;
   }
   .order-detail-img {
     width: 48px;

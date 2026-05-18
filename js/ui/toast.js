@@ -1,6 +1,7 @@
 /**
  * toast.js - Toast notification module
  */
+import { icon } from './icons.js';
 
 let container = null;
 
@@ -15,10 +16,10 @@ const getContainer = () => {
 };
 
 const ICONS = {
-  success: '✅',
-  danger:  '❌',
-  warning: '⚠️',
-  info:    'ℹ️',
+  success: 'check',
+  danger:  'close',
+  warning: 'warning',
+  info:    'info',
 };
 
 export const showToast = (message, type = 'info', title = '', duration = 3000) => {
@@ -30,12 +31,12 @@ export const showToast = (message, type = 'info', title = '', duration = 3000) =
   const toastTitle = title || defaultTitles[type] || 'Thông báo';
 
   toast.innerHTML = `
-    <div class="toast-icon">${ICONS[type] || 'ℹ️'}</div>
+    <div class="toast-icon">${icon(ICONS[type] || 'info')}</div>
     <div class="toast-content">
       <div class="toast-title">${toastTitle}</div>
       ${message ? `<div class="toast-message">${message}</div>` : ''}
     </div>
-    <button onclick="this.parentElement.remove()" style="border:none;background:none;cursor:pointer;color:var(--color-text-light);font-size:1rem;padding:0 0 0 8px;align-self:flex-start;">✕</button>
+    <button onclick="this.parentElement.remove()" style="border:none;background:none;cursor:pointer;color:var(--color-text-light);font-size:1rem;padding:0 0 0 8px;align-self:flex-start;">${icon('close')}</button>
   `;
 
   c.appendChild(toast);

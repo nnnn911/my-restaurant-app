@@ -111,7 +111,7 @@ create table if not exists public.orders (
   total integer not null default 0 check (total >= 0),
   voucher_code text references public.vouchers(code) on delete set null,
   source text not null default 'order',
-  status text not null default 'paid',
+  status text not null default 'pending',
   points_earned integer not null default 0 check (points_earned >= 0),
   points_awarded boolean not null default false,
   points_awarded_at timestamptz,
@@ -145,6 +145,11 @@ create table if not exists public.reservations (
   needed_date date not null,
   note text not null default '',
   status text not null default 'pending',
+  staff_id uuid references public.profiles(id) on delete set null,
+  staff_created boolean not null default false,
+  points_earned integer not null default 0 check (points_earned >= 0),
+  points_awarded boolean not null default false,
+  points_awarded_at timestamptz,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -270,13 +275,13 @@ begin
 
   if desired_code is null or desired_code = '' then
     if desired_role = 'staff' then
-      desired_code := public.next_public_code('E', 'staff_code', 5);
+      desired_code := public.next_public_code('NV', 'staff_code', 5);
     elsif desired_role = 'owner' then
-      desired_code := public.next_public_code('A', 'owner_code', 5);
+      desired_code := public.next_public_code('CH', 'owner_code', 5);
     elsif desired_role = 'shipper' then
-      desired_code := public.next_public_code('D', 'shipper_code', 5);
+      desired_code := public.next_public_code('SP', 'shipper_code', 5);
     else
-      desired_code := public.next_public_code('', 'customer_code', 6);
+      desired_code := public.next_public_code('KH', 'customer_code', 5);
     end if;
   end if;
 
@@ -387,7 +392,10 @@ begin
     order_total,
     nullif(payload ->> 'voucherCode', ''),
     order_source,
-    coalesce(nullif(payload ->> 'status', ''), 'paid'),
+    case
+      when order_source = 'pos' then 'completed'
+      else coalesce(nullif(payload ->> 'status', ''), 'pending')
+    end,
     order_points,
     false,
     null
@@ -473,8 +481,18 @@ begin
     raise exception 'Insufficient permission';
   end if;
 
-  if actor_role = 'shipper' and target.status <> 'shipping' then
-    raise exception 'Shipper can only update shipping orders';
+  if target.source = 'pos' and actor_role not in ('staff', 'owner') then
+    raise exception 'Only staff or owner can update POS orders';
+  end if;
+
+  if actor_role = 'shipper' and (
+    target.source <> 'order'
+    or not (
+      (target.status = 'ready' and next_status = 'delivering')
+      or (target.status = 'delivering' and next_status in ('completed', 'cancelled'))
+    )
+  ) then
+    raise exception 'Shipper can only receive ready orders or finish delivering orders';
   end if;
 
   update public.orders
@@ -487,7 +505,7 @@ begin
   where id = order_id
   returning * into target;
 
-  if next_status = 'delivered' and not target.points_awarded and target.user_id is not null then
+  if next_status = 'completed' and target.source = 'order' and not target.points_awarded and target.user_id is not null then
     awarded_points := public.calculate_order_points(target.total);
     if awarded_points > 0 then
       update public.profiles
@@ -510,6 +528,7 @@ begin
     'pointsEarned', target.points_earned,
     'pointsAwarded', target.points_awarded,
     'pointsAwardedAt', target.points_awarded_at,
+    'deliveredBy', (select public_code from public.profiles where id = target.delivered_by),
     'updatedAt', target.updated_at
   );
 end;
@@ -525,6 +544,9 @@ declare
   reservation_id text;
   actor_role public.app_role;
   reservation_user_id uuid;
+  reservation_staff_id uuid;
+  reservation_staff_created boolean;
+  reservation_total integer;
   created_reservation public.reservations;
 begin
   actor_role := public.current_app_role();
@@ -535,9 +557,19 @@ begin
 
   if auth.uid() is not null and actor_role = 'customer' then
     reservation_user_id := auth.uid();
+    reservation_staff_id := null;
+    reservation_staff_created := false;
+  elsif auth.uid() is not null and actor_role in ('staff', 'owner') then
+    reservation_user_id := null;
+    reservation_staff_id := auth.uid();
+    reservation_staff_created := true;
   else
     reservation_user_id := null;
+    reservation_staff_id := null;
+    reservation_staff_created := false;
   end if;
+
+  reservation_total := greatest(coalesce((payload ->> 'total')::integer, 0), 0);
 
   insert into public.reservations (
     id,
@@ -551,7 +583,10 @@ begin
     total,
     needed_date,
     note,
-    status
+    status,
+    staff_id,
+    staff_created,
+    points_earned
   )
   values (
     reservation_id,
@@ -562,10 +597,13 @@ begin
     nullif(payload ->> 'itemName', ''),
     greatest(coalesce((payload ->> 'qty')::integer, 1), 1),
     greatest(coalesce((payload ->> 'price')::integer, 0), 0),
-    greatest(coalesce((payload ->> 'total')::integer, 0), 0),
+    reservation_total,
     (payload ->> 'date')::date,
     coalesce(payload ->> 'note', ''),
-    coalesce(nullif(payload ->> 'status', ''), 'pending')
+    coalesce(nullif(payload ->> 'status', ''), 'pending'),
+    reservation_staff_id,
+    reservation_staff_created,
+    case when reservation_staff_created then 0 else public.calculate_order_points(reservation_total) end
   )
   on conflict (id) do update set
     name = excluded.name,
@@ -577,7 +615,10 @@ begin
     total = excluded.total,
     needed_date = excluded.needed_date,
     note = excluded.note,
-    status = excluded.status
+    status = excluded.status,
+    staff_id = excluded.staff_id,
+    staff_created = excluded.staff_created,
+    points_earned = excluded.points_earned
   returning * into created_reservation;
 
   return jsonb_build_object(
@@ -593,7 +634,76 @@ begin
     'date', created_reservation.needed_date,
     'note', created_reservation.note,
     'status', created_reservation.status,
+    'staffCreated', created_reservation.staff_created,
+    'pointsEarned', created_reservation.points_earned,
+    'pointsAwarded', created_reservation.points_awarded,
+    'pointsAwardedAt', created_reservation.points_awarded_at,
     'createdAt', created_reservation.created_at
+  );
+end;
+$$;
+
+create or replace function public.update_reservation_status(reservation_id text, next_status text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  actor_role public.app_role;
+  target public.reservations;
+  awarded_points integer;
+begin
+  if auth.uid() is null then
+    raise exception 'Authentication required';
+  end if;
+
+  actor_role := public.current_app_role();
+  if actor_role not in ('staff', 'owner') then
+    raise exception 'Insufficient permission';
+  end if;
+
+  select * into target
+  from public.reservations
+  where id = reservation_id
+  for update;
+
+  if not found then
+    raise exception 'Reservation not found';
+  end if;
+
+  update public.reservations
+  set status = next_status
+  where id = reservation_id
+  returning * into target;
+
+  if next_status = 'completed'
+    and not target.staff_created
+    and not target.points_awarded
+    and target.user_id is not null then
+    awarded_points := public.calculate_order_points(target.total);
+    if awarded_points > 0 then
+      update public.profiles
+      set points = points + awarded_points
+      where id = target.user_id;
+
+      update public.reservations
+      set
+        points_earned = awarded_points,
+        points_awarded = true,
+        points_awarded_at = now()
+      where id = reservation_id
+      returning * into target;
+    end if;
+  end if;
+
+  return jsonb_build_object(
+    'id', target.id,
+    'status', target.status,
+    'pointsEarned', target.points_earned,
+    'pointsAwarded', target.points_awarded,
+    'pointsAwardedAt', target.points_awarded_at,
+    'updatedAt', target.updated_at
   );
 end;
 $$;
@@ -703,7 +813,7 @@ to authenticated
 using (
   user_id = (select auth.uid())
   or public.is_staff_or_owner()
-  or (public.current_app_role() = 'shipper' and status in ('shipping', 'delivered', 'cancelled'))
+  or (public.current_app_role() = 'shipper' and source = 'order' and status in ('ready', 'delivering', 'completed', 'cancelled'))
 );
 
 drop policy if exists "orders_insert_customer_or_staff" on public.orders;
@@ -729,7 +839,7 @@ using (exists (
   and (
     o.user_id = (select auth.uid())
     or public.is_staff_or_owner()
-    or (public.current_app_role() = 'shipper' and o.status in ('shipping', 'delivered', 'cancelled'))
+    or (public.current_app_role() = 'shipper' and o.source = 'order' and o.status in ('ready', 'delivering', 'completed', 'cancelled'))
   )
 ));
 

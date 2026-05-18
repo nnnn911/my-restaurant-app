@@ -75,7 +75,7 @@ export const openOwnerProfileModal = ({ onLogout } = {}) => {
     <aside class="staff-profile-panel">
       <div class="staff-profile-header">
         <div class="staff-profile-title">${icon('user')} User Profile</div>
-        <button class="modal-close" id="owner-profile-close" aria-label="Đóng">✕</button>
+        <button class="modal-close" id="owner-profile-close" aria-label="Đóng">${icon('close')}</button>
       </div>
       <div class="staff-profile-body">
         <div style="display:flex;align-items:center;gap:var(--space-4)">
@@ -85,7 +85,7 @@ export const openOwnerProfileModal = ({ onLogout } = {}) => {
             <div style="color:var(--color-text-muted);font-size:var(--font-size-sm)">${escapeHtml(owner?.phone || '')}</div>
           </div>
           <div style="margin-left:auto">
-            <span class="badge badge-muted">${escapeHtml(owner?.id || 'A00000')}</span>
+            <span class="badge badge-muted">${escapeHtml(owner?.id || 'CH00001')}</span>
           </div>
         </div>
         <div class="staff-profile-info">

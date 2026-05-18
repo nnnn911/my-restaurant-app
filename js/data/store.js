@@ -78,8 +78,15 @@ const normalizeOrderRecord = (order = {}) => ({
 });
 
 const normalizePhone = (phone = '') => phone.toString().trim().replace(/\s+/g, '');
-const isSixDigitId = (id) => /^\d{6}$/.test((id || '').toString());
-const formatUserId = (n) => String(n).padStart(6, '0').slice(-6);
+const ROLE_ID_PREFIX = {
+  customer: 'KH',
+  staff: 'NV',
+  owner: 'CH',
+  shipper: 'SP',
+};
+const getRoleIdPrefix = (role = 'customer') => ROLE_ID_PREFIX[role] || ROLE_ID_PREFIX.customer;
+const isRoleId = (id, role = 'customer') => new RegExp(`^${getRoleIdPrefix(role)}\\d{5}$`).test((id || '').toString());
+const formatRoleId = (role, n) => `${getRoleIdPrefix(role)}${String(n).padStart(5, '0').slice(-5)}`;
 const isLegacyCustomerSeed = (user = {}) =>
   (user.id || '').toString().startsWith('u_');
 
@@ -112,23 +119,26 @@ const runRemoteSync = (task) => {
   });
 };
 
-const sanitizeUsersWithIds = (users = [], startAt = 0) => {
+const sanitizeUsersWithIds = (users = [], startAt = 1) => {
   const source = (Array.isArray(users) ? users : []).filter((user) => !isLegacyCustomerSeed(user));
   const used = new Set();
   const idMap = new Map();
-  let next = startAt;
+  const nextByRole = {};
 
-  const nextId = () => {
-    while (used.has(formatUserId(next))) next += 1;
-    const id = formatUserId(next);
+  const nextId = (role = 'customer') => {
+    const safeRole = ROLE_ID_PREFIX[role] ? role : 'customer';
+    let next = Number(nextByRole[safeRole] || startAt);
+    while (used.has(formatRoleId(safeRole, next))) next += 1;
+    const id = formatRoleId(safeRole, next);
     used.add(id);
-    next += 1;
+    nextByRole[safeRole] = next + 1;
     return id;
   };
 
   const normalized = source.map((user) => {
     const rawId = (user?.id || '').toString();
-    const id = isSixDigitId(rawId) && !used.has(rawId) ? rawId : nextId();
+    const role = user?.role || 'customer';
+    const id = isRoleId(rawId, role) && !used.has(rawId) ? rawId : nextId(role);
     used.add(id);
     idMap.set(rawId, id);
     return sanitizeUser(user, id);
@@ -141,10 +151,14 @@ const sanitizeUsers = (users = []) => sanitizeUsersWithIds(users).users;
 
 const getNextUserId = (users = []) => {
   const ids = (Array.isArray(users) ? users : [])
-    .map((u) => (isSixDigitId(u?.id) ? Number(u.id) : -1))
+    .filter((u) => (u?.role || 'customer') === 'customer')
+    .map((u) => {
+      const m = /^KH(\d{5})$/.exec((u?.id || '').toString());
+      return m ? Number(m[1]) : 0;
+    })
     .filter((n) => Number.isFinite(n) && n >= 0);
-  const max = ids.length ? Math.max(...ids) : -1;
-  return formatUserId(max + 1);
+  const max = ids.length ? Math.max(...ids) : 0;
+  return formatRoleId('customer', max + 1);
 };
 
 const normalizeDbUsers = (db) => {
@@ -590,7 +604,7 @@ export const createOrder = (orderData) => {
     pointsEarned: calculateOrderPoints(orderData),
     pointsAwarded: false,
     pointsAwardedAt: null,
-    status: orderData.status || 'paid',
+    status: orderData.status || (orderData.source === 'pos' ? 'completed' : 'pending'),
     createdAt: nowIso(),
   };
 
@@ -646,9 +660,30 @@ export const updateOrderStatusOnline = async (orderId, nextStatus) => {
       pointsEarned: result?.pointsEarned ?? orders[idx].pointsEarned,
       pointsAwarded: result?.pointsAwarded ?? orders[idx].pointsAwarded,
       pointsAwardedAt: result?.pointsAwardedAt ?? orders[idx].pointsAwardedAt,
+      deliveredBy: result?.deliveredBy ?? orders[idx].deliveredBy,
       updatedAt: result?.updatedAt || nowIso(),
     });
     saveDb({ ...db, orders });
+  }
+  return result;
+};
+
+export const updateReservationStatusOnline = async (reservationId, nextStatus) => {
+  if (!shouldUseRemote()) return null;
+  const result = await remoteDataService.updateReservationStatus(reservationId, nextStatus);
+  const db = ensureDb();
+  const reservations = Array.isArray(db.reservations) ? [...db.reservations] : [];
+  const idx = reservations.findIndex((reservation) => reservation.id === reservationId);
+  if (idx >= 0) {
+    reservations[idx] = {
+      ...reservations[idx],
+      status: result?.status || nextStatus,
+      pointsEarned: result?.pointsEarned ?? reservations[idx].pointsEarned,
+      pointsAwarded: result?.pointsAwarded ?? reservations[idx].pointsAwarded,
+      pointsAwardedAt: result?.pointsAwardedAt ?? reservations[idx].pointsAwardedAt,
+      updatedAt: result?.updatedAt || nowIso(),
+    };
+    saveDb({ ...db, reservations });
   }
   return result;
 };
@@ -934,6 +969,10 @@ export const createReservation = (data = {}) => {
     date: (data?.date || '').toString(),
     note: (data?.note || '').toString().trim(),
     status: 'pending',
+    staffCreated: Boolean(data?.staffCreated),
+    pointsEarned: data?.staffCreated ? 0 : calculateOrderPoints(safeTotal),
+    pointsAwarded: false,
+    pointsAwardedAt: null,
     createdAt: nowIso(),
   };
 

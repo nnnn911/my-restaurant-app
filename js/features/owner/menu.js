@@ -283,7 +283,7 @@ const openCreateMenuDrawer = () => {
     <aside class="staff-profile-panel owner-drawer-panel">
       <div class="staff-profile-header">
         <div class="staff-profile-title">${icon('pos')} Tạo món mới</div>
-        <button class="modal-close" id="create-close" aria-label="Đóng">✕</button>
+        <button class="modal-close" id="create-close" aria-label="Đóng">${icon('close')}</button>
       </div>
       <div class="staff-profile-body">
         <form class="owner-form" id="create-menu-form">

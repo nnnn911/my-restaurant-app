@@ -25,7 +25,7 @@ export const showProfileModal = () => {
     <div class="modal" style="max-width:480px">
       <div class="modal-header">
         <span class="modal-title">${icon('user')} Thông tin cá nhân</span>
-        <button class="modal-close" id="profile-modal-close" aria-label="Đóng">✕</button>
+        <button class="modal-close" id="profile-modal-close" aria-label="Đóng">${icon('close')}</button>
       </div>
       <div class="modal-body">
         <div style="text-align:center;margin-bottom:var(--space-6)">
@@ -68,15 +68,15 @@ export const showProfileModal = () => {
     const name = document.getElementById('pf-name').value.trim();
     const phone = document.getElementById('pf-phone').value.trim();
 
-    if (!name) { errEl.innerHTML = '⚠️ Tên không được để trống.'; errEl.style.display = 'flex'; return; }
-    if (!phone) { errEl.innerHTML = '⚠️ Số điện thoại không được để trống.'; errEl.style.display = 'flex'; return; }
-    if (!/^(0|\+84)[0-9]{8,10}$/.test(phone.replace(/\s+/g, ''))) { errEl.innerHTML = '⚠️ Số điện thoại không hợp lệ.'; errEl.style.display = 'flex'; return; }
+    if (!name) { errEl.innerHTML = `${icon('warning')} Tên không được để trống.`; errEl.style.display = 'flex'; return; }
+    if (!phone) { errEl.innerHTML = `${icon('warning')} Số điện thoại không được để trống.`; errEl.style.display = 'flex'; return; }
+    if (!/^(0|\+84)[0-9]{8,10}$/.test(phone.replace(/\s+/g, ''))) { errEl.innerHTML = `${icon('warning')} Số điện thoại không hợp lệ.`; errEl.style.display = 'flex'; return; }
     errEl.style.display = 'none';
 
     const updates = { name, phone };
     const result = updateUser(updates);
     if (!result?.ok) {
-      errEl.innerHTML = `⚠️ ${result?.msg || 'Không thể cập nhật thông tin.'}`;
+      errEl.innerHTML = `${icon('warning')} ${result?.msg || 'Không thể cập nhật thông tin.'}`;
       errEl.style.display = 'flex';
       return;
     }

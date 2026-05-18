@@ -117,7 +117,7 @@ export const openOwnerDrawer = ({ id = 'owner-object-drawer', title, label, body
     <aside class="staff-profile-panel owner-drawer-panel">
       <div class="staff-profile-header">
         <div class="staff-profile-title">${title}</div>
-        <button class="modal-close" data-owner-drawer-close aria-label="Đóng">✕</button>
+        <button class="modal-close" data-owner-drawer-close aria-label="Đóng">${icon('close')}</button>
       </div>
       <div class="staff-profile-body">${bodyHtml}</div>
     </aside>

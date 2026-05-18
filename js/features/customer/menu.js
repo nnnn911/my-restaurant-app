@@ -109,7 +109,7 @@ export const renderMenuItems = () => {
   if (!items.length) {
     grid.innerHTML = `
       <div class="empty-state" style="grid-column:1/-1">
-        <div class="empty-state-icon">🍽️</div>
+        <div class="empty-state-icon">${icon('menu', 'Thực đơn')}</div>
         <h3>Không tìm thấy món ăn</h3>
         <p>Thử tìm với từ khóa khác hoặc chọn danh mục khác.</p>
       </div>`;
@@ -169,7 +169,7 @@ export const renderMenuItems = () => {
       if (!item) return;
       addItemToCart(item);
       // Button feedback
-      btn.textContent = '✓';
+      btn.innerHTML = icon('check');
       btn.style.background = 'var(--color-success)';
       setTimeout(() => { btn.textContent = '+'; btn.style.background = ''; }, 1200);
     });
@@ -199,7 +199,7 @@ const openItemDetail = (id) => {
         <div style="position:relative;padding-top:50%;background:var(--color-beige-100);overflow:hidden;">
           <img src="${escapeAttr(item.img)}" alt="${escapeAttr(item.name)}" onerror="this.src='assets/images/placeholder.svg'"
             style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;">
-          <button id="detail-close" aria-label="Đóng" style="position:absolute;top:1rem;right:1rem;width:36px;height:36px;border-radius:50%;background:rgba(255,255,255,0.9);border:none;cursor:pointer;font-size:1rem;display:flex;align-items:center;justify-content:center;">✕</button>
+          <button id="detail-close" aria-label="Đóng" style="position:absolute;top:1rem;right:1rem;width:36px;height:36px;border-radius:50%;background:rgba(255,255,255,0.9);border:none;cursor:pointer;font-size:1rem;display:flex;align-items:center;justify-content:center;">${icon('close')}</button>
         </div>
         <div class="modal-body">
           <div style="font-size:var(--font-size-xs);font-weight:600;color:var(--color-primary-500);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">${escapeHtml(CATEGORY_LABELS[item.category] || item.category)}</div>

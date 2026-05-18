@@ -29,6 +29,7 @@ export default defineConfig({
         rewards: 'rewards.html',
         admin: 'admin.html',
         adminOrder: 'admin-order.html',
+        adminPosOrders: 'admin-pos-orders.html',
         adminPreorder: 'admin-preorder.html',
         owner: 'owner.html',
         ownerMenu: 'owner-menu.html',

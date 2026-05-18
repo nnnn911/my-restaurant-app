@@ -7,30 +7,26 @@ import { openStaffConfirm } from '../../ui/confirm.js';
 import { escapeHtml } from '../../core/html.js';
 
 const STATUS_MAP = {
-  placed: { label: 'Đã đặt', class: 'badge-primary' },
-  paid: { label: 'Cần xác nhận', class: 'badge-warning' },
-  confirmed: { label: 'Cần xác nhận', class: 'badge-warning' },
+  pending: { label: 'Chờ xác nhận', class: 'badge-warning' },
   preparing: { label: 'Đang thực hiện', class: 'badge-warning' },
-  ready: { label: 'Sẵn sàng', class: 'badge-success' },
-  shipping: { label: 'Đang được giao', class: 'badge-primary' },
-  delivered: { label: 'Hoàn thành', class: 'badge-primary' },
+  ready: { label: 'Sẵn sàng giao', class: 'badge-success' },
+  delivering: { label: 'Đang giao', class: 'badge-primary' },
+  completed: { label: 'Thành công', class: 'badge-success' },
   cancelled: { label: 'Đã hủy', class: 'badge-danger' },
 };
 
-const STATUS_FLOW = ['paid', 'preparing', 'ready', 'shipping'];
-
 const normalizeOrderStatus = (status) => {
-  const key = (status || 'paid').toString();
-  if (key === 'confirmed') return 'paid';
-  return STATUS_MAP[key] ? key : 'paid';
+  const key = (status || 'pending').toString();
+  if (['paid', 'confirmed', 'placed'].includes(key)) return 'pending';
+  if (key === 'shipping') return 'delivering';
+  if (key === 'delivered') return 'completed';
+  return STATUS_MAP[key] ? key : 'pending';
 };
 
 const getNextAction = (statusKey) => {
   const actions = {
-    paid: { nextStatus: 'preparing', label: 'Xác nhận đơn', confirm: 'Xác nhận đơn và chuyển sang trạng thái đang chuẩn bị?' },
-    preparing: { nextStatus: 'ready', label: 'Đơn sẵn sàng', confirm: 'Xác nhận đơn đã sẵn sàng?' },
-    ready: { nextStatus: 'shipping', label: 'Đã giao cho shipper', confirm: 'Xác nhận đã giao đơn cho shipper?' },
-    shipping: { nextStatus: 'delivered', label: 'Hoàn thành đơn', confirm: 'Xác nhận đơn hàng đã hoàn thành?' },
+    pending: { nextStatus: 'preparing', label: 'Xác nhận đơn', confirm: 'Xác nhận đơn và chuyển sang trạng thái đang thực hiện?' },
+    preparing: { nextStatus: 'ready', label: 'Sẵn sàng giao', confirm: 'Xác nhận đơn đã sẵn sàng giao?' },
   };
   return actions[statusKey] || null;
 };
@@ -39,8 +35,7 @@ const isPosOrder = (order = {}) =>
   (order?.source || '').toString() === 'pos' || /^POS-/.test((order?.id || '').toString());
 
 const canCancelOrder = (statusKey, order = null) => {
-  if (isPosOrder(order)) return statusKey !== 'cancelled';
-  return ['paid', 'preparing', 'ready'].includes(statusKey);
+  return ['pending', 'preparing'].includes(statusKey);
 };
 
 const PAYMENT_LABELS = {
@@ -48,6 +43,19 @@ const PAYMENT_LABELS = {
   bank: 'Chuyển khoản',
   momo: 'MoMo',
   vnpay: 'VNPay',
+};
+
+const PAYMENT_ICONS = {
+  cash: 'cash',
+  bank: 'bank',
+  momo: 'momo',
+  vnpay: 'vnpay',
+};
+
+const renderPaymentMethod = (method) => {
+  const key = (method || '').toString();
+  const label = PAYMENT_LABELS[key] || key || '—';
+  return `${icon(PAYMENT_ICONS[key] || 'cash')} ${escapeHtml(label)}`;
 };
 
 const getPaymentTag = (paymentMethod) => {
@@ -64,30 +72,31 @@ const getOrderItemCount = (items = []) =>
   }, 0);
 
 const TABS = [
-  { id: 'need', label: 'Cần xác nhận' },
+  { id: 'need', label: 'Chờ xác nhận' },
   { id: 'doing', label: 'Đang thực hiện' },
-  { id: 'ready', label: 'Sẵn sàng' },
-  { id: 'success', label: 'Hoàn thành' },
+  { id: 'ready', label: 'Sẵn sàng giao' },
   { id: 'all', label: 'Tất cả' },
 ];
 
 let tabId = 'need';
 let searchQuery = '';
+let statusFilter = 'all';
+let dateFilter = '';
 let selectedOrderId = null;
 
 const getSortedOrders = () => {
   const all = getOrders() || [];
   return all
+    .filter((order) => !isPosOrder(order))
     .slice()
     .sort((a, b) => new Date(b?.createdAt || 0).getTime() - new Date(a?.createdAt || 0).getTime());
 };
 
 const matchesTab = (status, tab) => {
   const statusKey = normalizeOrderStatus(status);
-  if (tab === 'need') return statusKey === 'paid';
+  if (tab === 'need') return statusKey === 'pending';
   if (tab === 'doing') return statusKey === 'preparing';
   if (tab === 'ready') return statusKey === 'ready';
-  if (tab === 'success') return ['shipping', 'delivered'].includes(statusKey);
   return true;
 };
 
@@ -96,6 +105,13 @@ const filterOrders = (orders, tab = tabId) => {
   return (orders || []).filter((o) => {
     const status = normalizeOrderStatus(o?.status);
     if (!matchesTab(status, tab)) return false;
+    if (tab === 'all') {
+      if (statusFilter !== 'all' && status !== statusFilter) return false;
+      if (dateFilter) {
+        const createdDate = (o?.createdAt || '').toString().slice(0, 10);
+        if (createdDate !== dateFilter) return false;
+      }
+    }
     if (!q) return true;
     const hay = `${o?.id || ''} ${o?.customerName || ''} ${o?.customerPhone || ''}`.toLowerCase();
     return hay.includes(q);
@@ -133,7 +149,7 @@ const updateOrderStatus = async (orderId, nextStatus) => {
   const updatedOrder = { ...all[idx], status: nextStatus, updatedAt: new Date().toISOString() };
   const pointsEarned = calculateOrderPoints(updatedOrder);
 
-  if (nextStatus === 'delivered' && !updatedOrder.pointsAwarded && pointsEarned > 0) {
+  if (nextStatus === 'completed' && !updatedOrder.pointsAwarded && pointsEarned > 0) {
     const awardedUser = addPoints(updatedOrder.userId, pointsEarned);
     if (awardedUser) {
       updatedOrder.pointsEarned = pointsEarned;
@@ -167,14 +183,14 @@ const renderListItem = (o) => {
   return `
     <div class="staff-list-item${isActive ? ' active' : ''}" data-select="${o.id}">
       <div class="staff-kv">
-        <div style="font-weight:700;font-size:var(--font-size-sm)">${icon('order')} ${escapeHtml(o.id)}</div>
+          <div style="font-weight:700;font-size:var(--font-size-sm)">${icon('order')} ${escapeHtml(o.id)}</div>
         <span class="badge ${status.class}">${status.label}</span>
       </div>
       <div class="staff-muted" style="margin-top:6px">${escapeHtml(formatDate(o.createdAt))}</div>
       <div style="margin-top:8px;display:flex;justify-content:space-between;gap:var(--space-3);align-items:flex-end">
         <div>
-          <div style="font-weight:600;color:var(--color-text)">${escapeHtml(customerLine)}</div>
-          <div class="staff-muted" style="margin-top:4px">${itemCount || 0} món</div>
+          <div style="font-weight:600;color:var(--color-text)">${icon('user')} ${escapeHtml(customerLine)}</div>
+          <div class="staff-muted" style="margin-top:4px">${icon('cart')} ${itemCount || 0} món</div>
         </div>
         <div style="font-weight:700;color:var(--color-primary-800)">${formatPrice(Number(o.total || 0))}</div>
       </div>
@@ -199,11 +215,11 @@ const renderDetail = (o) => {
   const isPos = isPosOrder(o);
   const nextAction = isPos ? null : getNextAction(statusKey);
   const paymentTag = getPaymentTag(o.paymentMethod);
-  const inShipping = statusKey === 'shipping';
+  const inDelivery = statusKey === 'delivering';
   const canCancel = canCancelOrder(statusKey, o);
 
   return `
-    <div>
+    <div class="staff-detail-shell">
       <div class="staff-kv" style="padding:var(--space-5);padding-bottom:0;margin-bottom:var(--space-4)">
         <div>
           <div style="font-weight:700;color:var(--color-text);font-size:var(--font-size-base)">${icon('order')} ${escapeHtml(o.id)}</div>
@@ -215,13 +231,11 @@ const renderDetail = (o) => {
         </div>
       </div>
 
-      <div style="padding:var(--space-5)">
-        <div class="staff-kv">
-          <div>
-            <div style="font-weight:600;color:var(--color-text);font-size:var(--font-size-sm)">${escapeHtml(o.customerName || '—')}</div>
-            <div class="staff-muted" style="margin-top:4px">${escapeHtml(o.customerPhone || '—')}</div>
-            <div class="staff-muted" style="margin-top:4px">${escapeHtml((o.address || 'Tại quán').toString())}</div>
-          </div>
+      <div class="staff-detail-content">
+        <div class="staff-info-grid">
+          <div class="staff-info-item">${icon('user')}<span>Khách hàng</span><strong>${escapeHtml(o.customerName || '—')}</strong></div>
+          <div class="staff-info-item">${icon('phone')}<span>Số điện thoại</span><strong>${escapeHtml(o.customerPhone || '—')}</strong></div>
+          <div class="staff-info-item staff-info-wide">${icon('location')}<span>Địa chỉ</span><strong>${escapeHtml((o.address || 'Tại quán').toString())}</strong></div>
         </div>
 
         <div style="margin-top:var(--space-5);padding-top:var(--space-4);border-top:1px solid var(--color-border)">
@@ -245,7 +259,7 @@ const renderDetail = (o) => {
               `).join('')}
             </tbody>
           </table>
-          ${o.note ? `<div style="margin-top:8px" class="staff-muted">Ghi chú: ${escapeHtml(o.note)}</div>` : ''}
+          ${o.note ? `<div style="margin-top:8px" class="staff-muted">${icon('note')} Ghi chú: ${escapeHtml(o.note)}</div>` : ''}
           <div style="display:flex;justify-content:space-between;margin-top:10px">
             <div class="staff-muted">Tổng tiền hàng</div>
             <div style="font-weight:600">${formatPrice(Number(o.subtotal || 0))}</div>
@@ -258,20 +272,20 @@ const renderDetail = (o) => {
             <div style="font-weight:600">Tổng cộng</div>
             <div class="price" style="font-weight:700">${formatPrice(Number(o.total || 0))}</div>
           </div>
-          <div class="staff-muted" style="margin-top:10px;text-align:right">Hình thức thanh toán: ${escapeHtml(PAYMENT_LABELS[o.paymentMethod] || (o.paymentMethod || '—'))}</div>
+          <div class="staff-payment-line">Phương thức thanh toán: ${renderPaymentMethod(o.paymentMethod)}</div>
         </div>
 
-        <div class="staff-actions" id="order-actions" style="margin-top:var(--space-5);padding-top:var(--space-4);border-top:1px solid var(--color-border);justify-content:flex-end">
-          ${inShipping ? `
+        <div class="staff-actions staff-actions--sticky" id="order-actions">
+          ${inDelivery ? `
             <button class="btn btn-outline" type="button" disabled>
-              Đơn đang được giao
+              Đơn đang giao
             </button>
           ` : nextAction ? `
             <button class="btn btn-primary" data-set-status="${nextAction.nextStatus}" data-confirm="${escapeHtml(nextAction.confirm)}">
               ${escapeHtml(nextAction.label)}
             </button>
           ` : canCancel ? '' : `<span class="staff-muted">Không còn thao tác cập nhật trạng thái.</span>`}
-          ${!inShipping && canCancel ? `
+          ${!inDelivery && canCancel ? `
             <button class="btn btn-danger" data-set-status="cancelled" data-confirm="Xác nhận hủy đơn hàng?">
               Huỷ đơn
             </button>
@@ -355,6 +369,13 @@ const renderPage = () => {
           <div class="staff-panel-header">
             <div style="display:flex;align-items:center;gap:var(--space-3);flex-wrap:wrap">
               ${renderTabs(all)}
+              ${tabId === 'all' ? `
+                <select class="form-control" id="order-status-filter" aria-label="Lọc trạng thái" style="max-width:220px">
+                  <option value="all">Mọi trạng thái</option>
+                  ${Object.entries(STATUS_MAP).map(([id, meta]) => `<option value="${id}"${statusFilter === id ? ' selected' : ''}>${meta.label}</option>`).join('')}
+                </select>
+                <input class="form-control" id="order-date-filter" type="date" aria-label="Lọc ngày" value="${dateFilter}" style="max-width:180px">
+              ` : ''}
               <div class="search-bar" style="max-width:420px;min-width:260px">
                 <span class="search-icon" aria-hidden="true">${icon('search')}</span>
                 <input type="search" id="order-search" placeholder="Tìm mã đơn / tên / SĐT" aria-label="Tìm đơn hàng" value="${(searchQuery || '').replaceAll('"', '&quot;')}">
@@ -399,11 +420,21 @@ const renderPage = () => {
     ensureSelected(all, nextFiltered);
     renderOrderList(listEl, nextFiltered);
   });
+
+  document.getElementById('order-status-filter')?.addEventListener('change', (e) => {
+    statusFilter = e.target.value || 'all';
+    renderPage();
+  });
+
+  document.getElementById('order-date-filter')?.addEventListener('change', (e) => {
+    dateFilter = e.target.value || '';
+    renderPage();
+  });
 };
 
 document.addEventListener('DOMContentLoaded', async () => {
-  await hydrateOnlineData();
   requireStaff('admin.html');
   renderPage();
+  hydrateOnlineData().then(() => renderPage()).catch(() => {});
   startOnlineRealtime(renderPage);
 });

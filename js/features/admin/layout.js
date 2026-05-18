@@ -58,6 +58,7 @@ export const renderStaffShell = ({
         <nav class="staff-nav" aria-label="Menu">
           ${navItem('pos', 'POS', 'admin.html', icon('pos'))}
           ${navItem('order', 'Đơn hàng', 'admin-order.html', icon('order'))}
+          ${navItem('posOrders', 'Đơn tại quán', 'admin-pos-orders.html', icon('pos'))}
           ${navItem('preorder', 'Đơn Đặt trước', 'admin-preorder.html', icon('reservation'))}
         </nav>
 
@@ -87,7 +88,7 @@ export const openStaffProfileModal = ({ onLogout } = {}) => {
     <aside class="staff-profile-panel">
       <div class="staff-profile-header">
         <div class="staff-profile-title">${icon('user')} User Profile</div>
-        <button class="modal-close" id="staff-profile-close" aria-label="Đóng">✕</button>
+        <button class="modal-close" id="staff-profile-close" aria-label="Đóng">${icon('close')}</button>
       </div>
       <div class="staff-profile-body">
         <div style="display:flex;align-items:center;gap:var(--space-4)">
@@ -97,7 +98,7 @@ export const openStaffProfileModal = ({ onLogout } = {}) => {
             <div style="color:var(--color-text-muted);font-size:var(--font-size-sm)">${escapeHtml(staff?.phone || '')}</div>
           </div>
           <div style="margin-left:auto">
-            <span class="badge badge-muted">${escapeHtml(staff?.id || 'E00000')}</span>
+            <span class="badge badge-muted">${escapeHtml(staff?.id || 'NV00001')}</span>
           </div>
         </div>
 

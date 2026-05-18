@@ -1,31 +1,31 @@
 import { toast } from '../../ui/toast.js';
 import { requireStaff, logoutStaff } from './auth.js';
-import { getReservations, saveReservations, formatPrice, formatDate, hydrateOnlineData, startOnlineRealtime } from '../../data/store.js';
+import { getReservations, saveReservations, formatPrice, formatDate, hydrateOnlineData, startOnlineRealtime, createReservationOnline, updateReservationStatusOnline, addPoints, calculateOrderPoints } from '../../data/store.js';
 import { bindStaffChrome, renderStaffShell } from './layout.js';
 import { icon } from '../../ui/icons.js';
 import { openStaffConfirm } from '../../ui/confirm.js';
-import { escapeHtml } from '../../core/html.js';
+import { escapeAttr, escapeHtml } from '../../core/html.js';
 
 const RES_STATUS = {
-  pending: { label: 'Cần xác nhận', class: 'badge-warning' },
-  confirmed: { label: 'Đang thực hiện', class: 'badge-warning' },
+  pending: { label: 'Chờ xác nhận', class: 'badge-warning' },
   preparing: { label: 'Đang thực hiện', class: 'badge-warning' },
   ready: { label: 'Sẵn sàng để pickup', class: 'badge-success' },
-  done: { label: 'Hoàn thành', class: 'badge-primary' },
+  completed: { label: 'Thành công', class: 'badge-success' },
   cancelled: { label: 'Đã hủy', class: 'badge-danger' },
 };
 
 const normalizeReservationStatus = (status) => {
   const key = (status || 'pending').toString();
   if (key === 'confirmed') return 'preparing';
+  if (key === 'done') return 'completed';
   return RES_STATUS[key] ? key : 'pending';
 };
 
 const getNextReservationAction = (statusKey) => {
   const actions = {
-    pending: { nextStatus: 'preparing', label: 'Xác nhận đơn', confirm: 'Xác nhận đơn và chuyển sang trạng thái đang chuẩn bị?' },
+    pending: { nextStatus: 'preparing', label: 'Xác nhận đơn', confirm: 'Xác nhận đơn và chuyển sang trạng thái đang thực hiện?' },
     preparing: { nextStatus: 'ready', label: 'Đơn sẵn sàng để pickup', confirm: 'Xác nhận đơn đã sẵn sàng để pickup?' },
-    ready: { nextStatus: 'done', label: 'Đã pickup', confirm: 'Xác nhận khách đã pickup đơn?' },
+    ready: { nextStatus: 'completed', label: 'Thành công', confirm: 'Xác nhận khách đã pickup đơn?' },
   };
   return actions[statusKey] || null;
 };
@@ -33,15 +33,16 @@ const getNextReservationAction = (statusKey) => {
 const canCancelReservation = (statusKey) => ['pending', 'preparing', 'ready'].includes(statusKey);
 
 const TABS = [
-  { id: 'need', label: 'Cần xác nhận' },
+  { id: 'need', label: 'Chờ xác nhận' },
   { id: 'doing', label: 'Đang thực hiện' },
-  { id: 'ready', label: 'Sẵn sàng' },
-  { id: 'done', label: 'Hoàn thành' },
+  { id: 'ready', label: 'Sẵn sàng pickup' },
   { id: 'all', label: 'Tất cả' },
 ];
 
 let tabId = 'need';
 let searchQuery = '';
+let statusFilter = 'all';
+let dateFilter = '';
 let selectedResId = null;
 
 const formatDateOnly = (iso) => {
@@ -84,7 +85,6 @@ const matchesTab = (status, tab) => {
   if (tab === 'need') return statusKey === 'pending';
   if (tab === 'doing') return statusKey === 'preparing';
   if (tab === 'ready') return statusKey === 'ready';
-  if (tab === 'done') return statusKey === 'done';
   return true;
 };
 
@@ -93,6 +93,10 @@ const filterReservations = (reservations, tab = tabId) => {
   return (reservations || []).filter((r) => {
     const status = getSafeStatus(r);
     if (!matchesTab(status, tab)) return false;
+    if (tab === 'all') {
+      if (statusFilter !== 'all' && status !== statusFilter) return false;
+      if (dateFilter && (r?.date || '').toString().slice(0, 10) !== dateFilter) return false;
+    }
     if (!q) return true;
     const hay = `${r?.id || ''} ${r?.name || ''} ${r?.phone || ''}`.toLowerCase();
     return hay.includes(q);
@@ -108,7 +112,7 @@ const ensureSelected = (all, filtered) => {
   selectedResId = filtered[0].id;
 };
 
-const updateReservationStatus = (id, nextStatus) => {
+const updateReservationStatus = async (id, nextStatus) => {
   const all = getReservations() || [];
   const idx = all.findIndex((r) => r.id === id);
   if (idx === -1) return false;
@@ -117,7 +121,24 @@ const updateReservationStatus = (id, nextStatus) => {
   const canMoveForward = nextStatus === allowedNext;
   const canCancel = nextStatus === 'cancelled' && canCancelReservation(currentStatus);
   if (!canMoveForward && !canCancel) return false;
-  all[idx] = { ...all[idx], status: nextStatus, updatedAt: new Date().toISOString() };
+  try {
+    const remoteResult = await updateReservationStatusOnline(id, nextStatus);
+    if (remoteResult) return true;
+  } catch (error) {
+    toast.error(error?.message || 'Không thể cập nhật trạng thái online.');
+    return false;
+  }
+
+  const updated = { ...all[idx], status: nextStatus, updatedAt: new Date().toISOString() };
+  if (nextStatus === 'completed' && !updated.staffCreated && !updated.pointsAwarded) {
+    const points = calculateOrderPoints(updated.total);
+    if (points > 0 && addPoints(updated.userId, points)) {
+      updated.pointsEarned = points;
+      updated.pointsAwarded = true;
+      updated.pointsAwardedAt = new Date().toISOString();
+    }
+  }
+  all[idx] = updated;
   saveReservations(all);
   return true;
 };
@@ -158,8 +179,8 @@ const renderListItem = (r) => {
       <div class="staff-muted" style="margin-top:6px">${escapeHtml(formatReservationTimestamp(r))}</div>
       <div style="margin-top:8px;display:flex;justify-content:space-between;gap:var(--space-3);align-items:flex-end">
         <div>
-          <div style="font-weight:600;color:var(--color-text)">${escapeHtml(customerLine)}</div>
-          <div class="staff-muted" style="margin-top:4px">${safeQty} món</div>
+          <div style="font-weight:600;color:var(--color-text)">${icon('user')} ${escapeHtml(customerLine)}</div>
+          <div class="staff-muted" style="margin-top:4px">${icon('cart')} ${safeQty} món</div>
         </div>
         <div style="font-weight:700;color:var(--color-primary-800)">${formatPrice(safeTotal)}</div>
       </div>
@@ -185,7 +206,7 @@ const renderDetail = (r) => {
   const nextAction = getNextReservationAction(statusKey);
 
   return `
-    <div>
+    <div class="staff-detail-shell">
       <div class="staff-kv" style="padding:var(--space-5);padding-bottom:0;margin-bottom:var(--space-4)">
         <div>
           <div style="font-weight:700;color:var(--color-text);font-size:var(--font-size-base)">${icon('reservation')} ${escapeHtml(r.id)}</div>
@@ -197,13 +218,12 @@ const renderDetail = (r) => {
         </div>
       </div>
 
-      <div style="padding:var(--space-5)">
-        <div class="staff-kv">
-          <div>
-            <div style="font-weight:600;color:var(--color-text);font-size:var(--font-size-sm)">${escapeHtml((r.name || '').toString() || '—')}</div>
-            <div class="staff-muted" style="margin-top:4px">${escapeHtml((r.phone || '').toString() || '—')}</div>
-            <div class="staff-muted" style="margin-top:4px">${escapeHtml((r.address || 'Đơn đặt trước').toString())}</div>
-          </div>
+      <div class="staff-detail-content">
+        <div class="staff-info-grid">
+          <div class="staff-info-item">${icon('user')}<span>Khách hàng</span><strong>${escapeHtml((r.name || '').toString() || '—')}</strong></div>
+          <div class="staff-info-item">${icon('phone')}<span>Số điện thoại</span><strong>${escapeHtml((r.phone || '').toString() || '—')}</strong></div>
+          <div class="staff-info-item">${icon('calendar')}<span>Ngày cần</span><strong>${escapeHtml(formatDateOnly(r.date) || '—')}</strong></div>
+          <div class="staff-info-item staff-info-wide">${icon('location')}<span>Địa chỉ</span><strong>${escapeHtml((r.address || 'Đơn đặt trước').toString())}</strong></div>
         </div>
 
         <div style="margin-top:var(--space-5);padding-top:var(--space-4);border-top:1px solid var(--color-border)">
@@ -222,7 +242,7 @@ const renderDetail = (r) => {
               </tr>
             </tbody>
           </table>
-          ${r.note ? `<div style="margin-top:8px" class="staff-muted">Ghi chú: ${escapeHtml(r.note)}</div>` : ''}
+          ${r.note ? `<div style="margin-top:8px" class="staff-muted">${icon('note')} Ghi chú: ${escapeHtml(r.note)}</div>` : ''}
           <div style="display:flex;justify-content:space-between;margin-top:10px">
             <div class="staff-muted">Tổng tiền hàng</div>
             <div style="font-weight:600">${formatPrice(safeTotal)}</div>
@@ -235,10 +255,10 @@ const renderDetail = (r) => {
             <div style="font-weight:600">Tổng cộng</div>
             <div class="price" style="font-weight:700">${formatPrice(safeTotal)}</div>
           </div>
-          <div class="staff-muted" style="margin-top:10px;text-align:right">Hình thức thanh toán: Đặt trước</div>
+          <div class="staff-payment-line">Phương thức thanh toán: ${icon('reservation')} Đặt trước</div>
         </div>
 
-        <div class="staff-actions" style="margin-top:var(--space-5);padding-top:var(--space-4);border-top:1px solid var(--color-border);justify-content:flex-end">
+        <div class="staff-actions staff-actions--sticky">
           ${nextAction ? `
             <button class="btn btn-primary" data-set-status="${nextAction.nextStatus}" data-confirm="${escapeHtml(nextAction.confirm)}">
               ${escapeHtml(nextAction.label)}
@@ -272,7 +292,7 @@ const renderSelectedReservationDetail = () => {
         danger: next === 'cancelled',
       });
       if (!ok) return;
-      const updated = updateReservationStatus(selectedResId, next);
+      const updated = await updateReservationStatus(selectedResId, next);
       if (!updated) {
         toast.error('Không thể cập nhật ngược hoặc bỏ qua bước trạng thái.');
         renderPage();
@@ -311,6 +331,111 @@ const renderReservationList = (listEl, rows) => {
   renderSelectedReservationDetail();
 };
 
+const openCreatePreorderModal = () => {
+  document.getElementById('staff-create-preorder-modal')?.remove();
+  const modal = document.createElement('div');
+  modal.className = 'modal-backdrop active';
+  modal.id = 'staff-create-preorder-modal';
+  modal.setAttribute('role', 'dialog');
+  modal.setAttribute('aria-modal', 'true');
+  modal.innerHTML = `
+    <div class="modal" style="max-width:560px">
+      <div class="modal-header">
+        <span class="modal-title">${icon('reservation')} Tạo preorder</span>
+        <button class="modal-close" type="button" data-close aria-label="Đóng">${icon('close')}</button>
+      </div>
+      <form id="staff-create-preorder-form" novalidate>
+        <div class="modal-body">
+          <div class="form-group">
+            <label class="form-label" for="new-preorder-name">Tên khách</label>
+            <input class="form-control" id="new-preorder-name" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="new-preorder-phone">Số điện thoại</label>
+            <input class="form-control" id="new-preorder-phone" type="tel" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="new-preorder-item">Món đặt trước</label>
+            <input class="form-control" id="new-preorder-item" placeholder="Gà nguyên con" required>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-3)">
+            <div class="form-group">
+              <label class="form-label" for="new-preorder-qty">Số lượng</label>
+              <input class="form-control" id="new-preorder-qty" type="number" min="1" value="1" required>
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="new-preorder-price">Đơn giá</label>
+              <input class="form-control" id="new-preorder-price" type="number" min="0" value="0" required>
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="new-preorder-date">Ngày pickup</label>
+            <input class="form-control" id="new-preorder-date" type="date" value="${escapeAttr(new Date().toISOString().slice(0, 10))}" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="new-preorder-note">Ghi chú</label>
+            <textarea class="form-control" id="new-preorder-note" rows="3"></textarea>
+          </div>
+          <div id="staff-create-preorder-error" class="form-error" style="display:none"></div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-outline" type="button" data-close>Thoát</button>
+          <button class="btn btn-primary" type="submit">Tạo đơn</button>
+        </div>
+      </form>
+    </div>
+  `;
+
+  const close = () => {
+    modal.remove();
+    document.body.style.overflow = '';
+  };
+
+  document.body.appendChild(modal);
+  document.body.style.overflow = 'hidden';
+  modal.querySelectorAll('[data-close]').forEach((btn) => btn.addEventListener('click', close));
+  modal.addEventListener('click', (event) => {
+    if (event.target === modal) close();
+  });
+  modal.querySelector('#staff-create-preorder-form')?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const err = modal.querySelector('#staff-create-preorder-error');
+    const name = modal.querySelector('#new-preorder-name')?.value.trim() || '';
+    const phone = modal.querySelector('#new-preorder-phone')?.value.trim() || '';
+    const itemName = modal.querySelector('#new-preorder-item')?.value.trim() || '';
+    const qty = Number(modal.querySelector('#new-preorder-qty')?.value || 1);
+    const price = Number(modal.querySelector('#new-preorder-price')?.value || 0);
+    const date = modal.querySelector('#new-preorder-date')?.value || '';
+    if (!name || !phone || !itemName || !date || !Number.isFinite(qty) || qty <= 0 || !Number.isFinite(price) || price < 0) {
+      err.textContent = 'Vui lòng nhập đầy đủ thông tin hợp lệ.';
+      err.style.display = 'flex';
+      return;
+    }
+    try {
+      const reservation = await createReservationOnline({
+        name,
+        phone,
+        type: 'preorder',
+        itemName,
+        qty,
+        price,
+        total: qty * price,
+        date,
+        note: modal.querySelector('#new-preorder-note')?.value || '',
+        staffCreated: true,
+        status: 'pending',
+      });
+      selectedResId = reservation.id;
+      toast.success(`Đã tạo preorder ${reservation.id}.`);
+      close();
+      renderPage();
+    } catch (error) {
+      err.textContent = error?.message || 'Không thể tạo preorder.';
+      err.style.display = 'flex';
+    }
+  });
+};
+
 const renderPage = () => {
   const all = getSortedReservations();
   const filtered = filterReservations(all);
@@ -328,6 +453,13 @@ const renderPage = () => {
           <div class="staff-panel-header">
             <div style="display:flex;align-items:center;gap:var(--space-3);flex-wrap:wrap">
               ${renderTabs(all)}
+              ${tabId === 'all' ? `
+                <select class="form-control" id="res-status-filter" aria-label="Lọc trạng thái" style="max-width:220px">
+                  <option value="all">Mọi trạng thái</option>
+                  ${Object.entries(RES_STATUS).map(([id, meta]) => `<option value="${id}"${statusFilter === id ? ' selected' : ''}>${meta.label}</option>`).join('')}
+                </select>
+                <input class="form-control" id="res-date-filter" type="date" aria-label="Lọc ngày pickup" value="${dateFilter}" style="max-width:180px">
+              ` : ''}
               <div class="search-bar" style="max-width:420px;min-width:260px">
                 <span class="search-icon" aria-hidden="true">${icon('search')}</span>
                 <input type="search" id="res-search" placeholder="Tìm mã RES / tên / SĐT" aria-label="Tìm đơn đặt trước" value="${(searchQuery || '').replaceAll('"', '&quot;')}">
@@ -340,6 +472,7 @@ const renderPage = () => {
         <section class="staff-panel" aria-label="Chi tiết đơn đặt trước">
           <div class="staff-panel-header">
             <div class="staff-panel-title">${icon('reservation')} Chi tiết</div>
+            <button class="btn btn-primary btn-sm" id="create-preorder" type="button">${icon('addpeople')} Tạo preorder</button>
           </div>
           <div class="staff-panel-body" id="res-detail"></div>
         </section>
@@ -370,11 +503,23 @@ const renderPage = () => {
     ensureSelected(all, nextFiltered);
     renderReservationList(listEl, nextFiltered);
   });
+
+  document.getElementById('res-status-filter')?.addEventListener('change', (e) => {
+    statusFilter = e.target.value || 'all';
+    renderPage();
+  });
+
+  document.getElementById('res-date-filter')?.addEventListener('change', (e) => {
+    dateFilter = e.target.value || '';
+    renderPage();
+  });
+
+  document.getElementById('create-preorder')?.addEventListener('click', openCreatePreorderModal);
 };
 
 document.addEventListener('DOMContentLoaded', async () => {
-  await hydrateOnlineData();
   requireStaff('admin.html');
   renderPage();
+  hydrateOnlineData().then(() => renderPage()).catch(() => {});
   startOnlineRealtime(renderPage);
 });

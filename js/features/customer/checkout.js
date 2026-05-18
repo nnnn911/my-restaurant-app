@@ -187,7 +187,7 @@ export const renderCheckoutPage = () => {
               </div>
 
               ${!user ? `
-                <div class="form-error" style="margin-bottom:var(--space-4)">⚠️ Vui lòng đăng nhập để đặt hàng.</div>
+                <div class="form-error" style="margin-bottom:var(--space-4)">${icon('warning')} Vui lòng đăng nhập để đặt hàng.</div>
               ` : ''}
 
               <div class="reservation-grid">
@@ -254,13 +254,13 @@ export const renderCheckoutPage = () => {
           <div class="checkout-paybar" id="checkout-paybar">
             <div class="checkout-paybar-container">
               <div class="checkout-paybar-inner">
-                <div>
-                  <div class="checkout-paybar-label">Tổng thanh toán</div>
-                  <div class="checkout-paybar-total">${formatPrice(total)}</div>
-                </div>
                 <button class="btn btn-primary btn-lg" id="btn-place-order" ${!user ? 'disabled' : ''}>
                   Thanh toán
                 </button>
+                <div class="checkout-paybar-amount">
+                  <div class="checkout-paybar-label">Tổng thanh toán</div>
+                  <div class="checkout-paybar-total">${formatPrice(total)}</div>
+                </div>
               </div>
             </div>
           </div>
@@ -269,7 +269,7 @@ export const renderCheckoutPage = () => {
         <div class="checkout-paybar checkout-paybar--docked" id="checkout-paybar-docked" aria-hidden="true">
           <div class="checkout-paybar-container">
             <div class="checkout-paybar-inner">
-              <div>
+              <div class="checkout-paybar-amount">
                 <div class="checkout-paybar-label">Tổng thanh toán</div>
                 <div class="checkout-paybar-total">${formatPrice(total)}</div>
               </div>
@@ -356,7 +356,7 @@ export const renderCheckoutPage = () => {
     const errEl = document.getElementById('checkout-error');
 
     if (!name || !phone || !ward || !addressDetail) {
-      errEl.innerHTML = '⚠️ Vui lòng nhập đầy đủ họ tên, số điện thoại và địa chỉ giao hàng.';
+      errEl.innerHTML = `${icon('warning')} Vui lòng nhập đầy đủ họ tên, số điện thoại và địa chỉ giao hàng.`;
       errEl.style.display = 'flex';
       return;
     }
@@ -384,7 +384,7 @@ export const renderCheckoutPage = () => {
       voucherCode: currentVoucher?.voucher?.code || null,
       });
     } catch (error) {
-      errEl.innerHTML = `⚠️ ${error?.message || 'Không thể tạo đơn hàng online. Vui lòng thử lại.'}`;
+      errEl.innerHTML = `${icon('warning')} ${error?.message || 'Không thể tạo đơn hàng online. Vui lòng thử lại.'}`;
       errEl.style.display = 'flex';
       return;
     }

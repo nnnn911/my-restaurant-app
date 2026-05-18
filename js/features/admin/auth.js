@@ -12,17 +12,18 @@ const STAFF_CURRENT_KEY = 'dq_staff_current';
 
 const nowIso = () => new Date().toISOString();
 const normalizePhone = (phone = '') => phone.toString().trim().replace(/\s+/g, '');
-const isStaffId = (id) => /^E\d{5}$/.test((id || '').toString());
-const formatStaffId = (n) => `E${String(n).padStart(5, '0').slice(-5)}`;
+const isStaffId = (id) => /^NV\d{5}$/.test((id || '').toString());
+const formatStaffId = (n) => `NV${String(n).padStart(5, '0').slice(-5)}`;
 const isLegacyStaffSeed = (user = {}) =>
   user.id === 's_seed_1'
   || user.id === 'E00000'
+  || user.id === 'NV00000'
   || ((user.username || '').toString() === 'staff' && (user.password || '').toString() === '123');
 
 const sanitizeStaffUsers = (users = []) => {
   const source = (Array.isArray(users) ? users : []).filter((user) => !isLegacyStaffSeed(user));
   const used = new Set();
-  let next = 0;
+  let next = 1;
 
   const nextId = () => {
     while (used.has(formatStaffId(next))) next += 1;
