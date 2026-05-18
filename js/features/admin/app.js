@@ -88,12 +88,12 @@ const updatePosCustomerSummaryUI = () => {
   if (!summary || !btn) return;
 
   if (!name && !phone) {
-    summary.textContent = '';
+    summary.innerHTML = '';
     btn.setAttribute('aria-label', 'Thêm thông tin khách');
     btn.innerHTML = '<img src="assets/icons/addpeople.svg" alt="" aria-hidden="true">';
     return;
   }
-  summary.textContent = `${name || '—'}${phone ? ` • ${phone}` : ''}`;
+  summary.innerHTML = `${icon('user')} ${escapeAttr(name || '—')}${phone ? ` • ${escapeAttr(phone)}` : ''}`;
   btn.setAttribute('aria-label', 'Sửa thông tin khách');
   btn.innerHTML = '<img src="assets/icons/pen.svg" alt="" aria-hidden="true">';
 };
@@ -704,6 +704,7 @@ const renderPos = () => {
             <input class="form-control" id="pos-customer-phone" type="tel" placeholder="0901234567" value="${escapeAttr(d.phone)}">
           </div>
           <div class="pos-customer-drawer-actions">
+            <button class="btn btn-danger" type="button" id="pos-customer-clear">Xoá khách hàng</button>
             <button class="btn btn-outline" type="button" id="pos-customer-cancel">Thoát</button>
             <button class="btn btn-primary" type="button" id="pos-customer-save">Lưu</button>
           </div>
@@ -726,6 +727,12 @@ const renderPos = () => {
     });
 
     document.getElementById('pos-customer-cancel')?.addEventListener('click', close);
+
+    document.getElementById('pos-customer-clear')?.addEventListener('click', () => {
+      setPosDraft({ ...getPosDraft(), customerName: '', phone: '' });
+      updatePosCustomerSummaryUI();
+      close();
+    });
 
     document.getElementById('pos-customer-save')?.addEventListener('click', () => {
       const name = (document.getElementById('pos-customer-name')?.value || '').toString();
