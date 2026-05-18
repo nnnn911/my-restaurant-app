@@ -43,6 +43,28 @@ const clearPosCart = () => savePosCart([]);
 const calcSubtotal = (cart) =>
   (cart || []).reduce((sum, it) => sum + Number(it.price || 0) * Number(it.qty || 0), 0);
 
+const normalizeDiscountType = (type) => type === 'percent' ? 'percent' : 'amount';
+
+const getPosDiscount = (subtotal, draft = getPosDraft()) => {
+  const type = normalizeDiscountType(draft.discountType);
+  const rawValue = Number(draft.discountValue || 0);
+  const value = Number.isFinite(rawValue) && rawValue > 0 ? rawValue : 0;
+  const safeSubtotal = Math.max(0, Number(subtotal || 0));
+  const discount = type === 'percent'
+    ? Math.round(safeSubtotal * Math.min(value, 100) / 100)
+    : Math.round(value);
+  return {
+    type,
+    value,
+    amount: Math.min(Math.max(discount, 0), safeSubtotal),
+  };
+};
+
+const getDiscountLabel = ({ type, value, amount }) => {
+  if (!amount) return 'Chưa áp dụng';
+  return type === 'percent' ? `${value}% (${formatPrice(amount)})` : formatPrice(amount);
+};
+
 const isPosMounted = () => {
   return Boolean(document.getElementById('pos-menu-grid'));
 };
@@ -81,6 +103,8 @@ const createPosOrder = async ({ staff, cart, payment }) => {
   const name = (snapshot.customerName || '').toString().trim() || 'Khách tại quán';
   const phone = (snapshot.phone || '').toString().trim();
   const subtotalNow = calcSubtotal(cart);
+  const discount = getPosDiscount(subtotalNow, snapshot).amount;
+  const total = Math.max(0, subtotalNow - discount);
 
   let order;
   try {
@@ -93,8 +117,8 @@ const createPosOrder = async ({ staff, cart, payment }) => {
     paymentMethod: payment,
     items: cart.map((i) => ({ id: i.id, name: i.name, price: i.price, qty: i.qty, note: i.note || '' })),
     subtotal: subtotalNow,
-    discount: 0,
-    total: subtotalNow,
+    discount,
+    total,
     voucherCode: null,
     source: 'pos',
     status: 'completed',
@@ -108,10 +132,114 @@ const createPosOrder = async ({ staff, cart, payment }) => {
   window.dispatchEvent(new CustomEvent('menu:updated'));
 
   clearPosCart();
-  setPosDraft({ ...snapshot, payment, note: '' });
+  setPosDraft({ ...snapshot, payment, note: '', discountType: 'amount', discountValue: 0 });
   toast.success(`Tạo đơn thành công: ${order.id}`);
   showPosSuccess(order);
   updatePosCartUI();
+};
+
+const showPosDiscountDrawer = () => {
+  const subtotal = calcSubtotal(getPosCart());
+  if (subtotal <= 0) return;
+
+  document.getElementById('pos-discount-drawer')?.remove();
+  const d = getPosDraft();
+  const discount = getPosDiscount(subtotal, d);
+
+  const drawer = document.createElement('div');
+  drawer.className = 'pos-customer-drawer-backdrop';
+  drawer.id = 'pos-discount-drawer';
+  drawer.setAttribute('role', 'dialog');
+  drawer.setAttribute('aria-modal', 'true');
+  drawer.setAttribute('aria-label', 'Giảm giá');
+
+  drawer.innerHTML = `
+    <aside class="pos-customer-drawer-panel" role="document">
+      <div class="pos-customer-drawer-body">
+        <div class="pos-customer-drawer-title">Giảm giá</div>
+        <div class="payment-methods pos-payment-methods" role="radiogroup" aria-label="Kiểu giảm giá">
+          <label class="payment-method-card slim ${discount.type === 'amount' ? 'selected' : ''}" data-discount-type="amount">
+            <input type="radio" name="pos-discount-type" value="amount" ${discount.type === 'amount' ? 'checked' : ''}>
+            <div class="payment-method-left">
+              ${icon('dollar', '', 'payment-method-icon')}
+              <span class="payment-method-name">Số tiền</span>
+            </div>
+            <span class="payment-method-dot" aria-hidden="true"></span>
+          </label>
+          <label class="payment-method-card slim ${discount.type === 'percent' ? 'selected' : ''}" data-discount-type="percent">
+            <input type="radio" name="pos-discount-type" value="percent" ${discount.type === 'percent' ? 'checked' : ''}>
+            <div class="payment-method-left">
+              ${icon('voucher', '', 'payment-method-icon')}
+              <span class="payment-method-name">Phần trăm</span>
+            </div>
+            <span class="payment-method-dot" aria-hidden="true"></span>
+          </label>
+        </div>
+        <div class="form-group" style="margin-top:var(--space-4)">
+          <label class="form-label" for="pos-discount-value">Giá trị giảm</label>
+          <input class="form-control" id="pos-discount-value" type="number" min="0" step="1" inputmode="numeric" value="${escapeAttr(String(discount.value || ''))}" placeholder="Nhập số tiền hoặc %">
+        </div>
+        <div class="staff-muted" id="pos-discount-preview" style="margin-top:var(--space-2)"></div>
+        <div class="pos-customer-drawer-actions">
+          <button class="btn btn-outline" type="button" id="pos-discount-clear">Xoá giảm giá</button>
+          <button class="btn btn-outline" type="button" id="pos-discount-cancel">Thoát</button>
+          <button class="btn btn-primary" type="button" id="pos-discount-save">Áp dụng</button>
+        </div>
+      </div>
+    </aside>
+  `;
+
+  document.body.appendChild(drawer);
+  document.body.style.overflow = 'hidden';
+  requestAnimationFrame(() => drawer.classList.add('active'));
+
+  const close = () => {
+    drawer.classList.remove('active');
+    document.body.style.overflow = '';
+    setTimeout(() => drawer.remove(), 250);
+  };
+
+  const updatePreview = () => {
+    const type = drawer.querySelector('input[name=pos-discount-type]:checked')?.value || 'amount';
+    const value = Number(document.getElementById('pos-discount-value')?.value || 0);
+    const nextDiscount = getPosDiscount(subtotal, { discountType: type, discountValue: value });
+    const total = Math.max(0, subtotal - nextDiscount.amount);
+    const preview = document.getElementById('pos-discount-preview');
+    if (preview) {
+      preview.textContent = `Giảm ${getDiscountLabel(nextDiscount)} · Tổng còn ${formatPrice(total)}`;
+    }
+  };
+
+  drawer.addEventListener('click', (e) => {
+    if (e.target === drawer) close();
+  });
+
+  drawer.querySelectorAll('.payment-method-card').forEach((card) => {
+    card.addEventListener('click', () => {
+      drawer.querySelectorAll('.payment-method-card').forEach((c) => c.classList.remove('selected'));
+      card.classList.add('selected');
+      card.querySelector('input[type=radio]').checked = true;
+      updatePreview();
+    });
+  });
+
+  document.getElementById('pos-discount-value')?.addEventListener('input', updatePreview);
+  document.getElementById('pos-discount-cancel')?.addEventListener('click', close);
+  document.getElementById('pos-discount-clear')?.addEventListener('click', () => {
+    setPosDraft({ ...getPosDraft(), discountType: 'amount', discountValue: 0 });
+    close();
+    updatePosCartUI();
+  });
+  document.getElementById('pos-discount-save')?.addEventListener('click', () => {
+    const type = drawer.querySelector('input[name=pos-discount-type]:checked')?.value || 'amount';
+    const value = Number(document.getElementById('pos-discount-value')?.value || 0);
+    setPosDraft({ ...getPosDraft(), discountType: type, discountValue: value });
+    close();
+    updatePosCartUI();
+  });
+
+  updatePreview();
+  setTimeout(() => document.getElementById('pos-discount-value')?.focus(), 0);
 };
 
 const showPosPaymentDrawer = ({ staff, cart }) => {
@@ -243,6 +371,8 @@ const updatePosCartUI = () => {
   const menu = getMenu();
   const cart = getPosCart();
   const subtotal = calcSubtotal(cart);
+  const discount = getPosDiscount(subtotal);
+  const total = Math.max(0, subtotal - discount.amount);
 
   const body = document.getElementById('pos-cart-body');
   if (!body) return;
@@ -303,8 +433,6 @@ const updatePosCartUI = () => {
 
   const el = document.getElementById('pos-price-summary');
   if (el) {
-    const discount = 0;
-    const total = subtotal - discount;
     el.innerHTML = `
       <div class="staff-kv">
         <div class="staff-muted">Tạm tính</div>
@@ -312,13 +440,18 @@ const updatePosCartUI = () => {
       </div>
       <div class="staff-kv" style="margin-top:8px">
         <div class="staff-muted">Giảm giá</div>
-        <div style="font-weight:600">-${formatPrice(discount)}</div>
+        <div style="font-weight:600">-${formatPrice(discount.amount)}</div>
       </div>
       <div class="staff-kv" style="margin-top:10px;padding-top:10px;border-top:1px dashed var(--color-border)">
         <div style="font-weight:600">Tổng cộng</div>
         <div class="price" style="font-weight:700">${formatPrice(total)}</div>
       </div>
+      <button class="btn btn-outline btn-block" id="pos-discount-open" type="button" style="margin-top:var(--space-3)" ${cart.length ? '' : 'disabled'}>
+        ${icon('dollar')} Giảm giá${discount.amount ? `: ${getDiscountLabel(discount)}` : ''}
+      </button>
     `;
+
+    document.getElementById('pos-discount-open')?.addEventListener('click', showPosDiscountDrawer);
   }
 
   const createBtn = document.getElementById('pos-create');
@@ -358,8 +491,10 @@ const getPosDraft = () => {
         note: (d.note || '').toString(),
         search: (d.search || '').toString(),
         category: (d.category || 'all').toString(),
+        discountType: normalizeDiscountType(d.discountType),
+        discountValue: Number(d.discountValue || 0),
       }
-    : { customerName: '', phone: '', payment: 'cash', note: '', search: '', category: 'all' };
+    : { customerName: '', phone: '', payment: 'cash', note: '', search: '', category: 'all', discountType: 'amount', discountValue: 0 };
 };
 
 const setPosDraft = (next) => {
@@ -374,6 +509,8 @@ const setPosDraft = (next) => {
     note: (safe.note || '').toString(),
     search: (safe.search || '').toString(),
     category,
+    discountType: normalizeDiscountType(safe.discountType),
+    discountValue: Number(safe.discountValue || 0),
     updatedAt: new Date().toISOString(),
   });
 };
@@ -615,7 +752,7 @@ const renderPos = () => {
     if (!ok) return;
     const currentDraft = getPosDraft();
     clearPosCart();
-    setPosDraft({ ...currentDraft, customerName: '', phone: '', payment: 'cash', note: '' });
+    setPosDraft({ ...currentDraft, customerName: '', phone: '', payment: 'cash', note: '', discountType: 'amount', discountValue: 0 });
     updatePosCustomerSummaryUI();
     updatePosCartUI();
     updatePosFilterUI();

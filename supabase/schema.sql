@@ -246,17 +246,34 @@ set search_path = public
 as $$
 declare
   next_value integer;
+  candidate text;
 begin
   insert into public.app_sequences(key, value)
   values (seq_key, 0)
   on conflict (key) do nothing;
 
-  update public.app_sequences
-  set value = value + 1
-  where key = seq_key
-  returning value into next_value;
+  loop
+    update public.app_sequences
+    set value = value + 1
+    where key = seq_key
+    returning value into next_value;
 
-  return prefix || lpad(next_value::text, width, '0');
+    candidate := prefix || lpad(next_value::text, width, '0');
+
+    exit when
+      (prefix in ('KH', 'NV', 'CH', 'SP') and not exists (
+        select 1 from public.profiles where public_code = candidate
+      ))
+      or (prefix in ('ORD-', 'POS-') and not exists (
+        select 1 from public.orders where id = candidate
+      ))
+      or (prefix = 'RES-' and not exists (
+        select 1 from public.reservations where id = candidate
+      ))
+      or prefix not in ('KH', 'NV', 'CH', 'SP', 'ORD-', 'POS-', 'RES-');
+  end loop;
+
+  return candidate;
 end;
 $$;
 

@@ -79,6 +79,8 @@ const getHistoryRecordsForUser = (user) => {
         status: r.status || 'pending',
         createdAt: r.createdAt || r.date,
         preorderDate: r.date,
+        customerName: (r?.name || '').toString().trim() || 'Khách hàng',
+        customerPhone: (r?.phone || '').toString().trim(),
         address: '',
         paymentMethod: 'preorder',
         items: [{ name: itemName, qty: safeQty, price: safePrice, note: '' }],
