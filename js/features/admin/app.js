@@ -5,7 +5,7 @@ import { bindStaffChrome, renderStaffShell } from './layout.js';
 import { icon } from '../../ui/icons.js';
 import { openStaffConfirm } from '../../ui/confirm.js';
 import { readJson, writeJson } from '../../core/storage.js';
-import { escapeAttr } from '../../core/html.js';
+import { escapeAttr, escapeHtml } from '../../core/html.js';
 
 const POS_CART_KEY = 'dq_pos_cart';
 const POS_DRAFT_KEY = 'dq_pos_draft';
@@ -93,7 +93,10 @@ const updatePosCustomerSummaryUI = () => {
     btn.innerHTML = '<img src="assets/icons/addpeople.svg" alt="" aria-hidden="true">';
     return;
   }
-  summary.innerHTML = `${icon('user')} ${escapeAttr(name || '—')}${phone ? ` • ${escapeAttr(phone)}` : ''}`;
+  summary.innerHTML = `
+    <span style="display:inline-flex;align-items:center;gap:6px">${icon('user')} ${escapeHtml(name || '—')}</span>
+    ${phone ? `<span style="display:inline-flex;align-items:center;gap:6px;margin-left:10px">${icon('phone')} ${escapeHtml(phone)}</span>` : ''}
+  `;
   btn.setAttribute('aria-label', 'Sửa thông tin khách');
   btn.innerHTML = '<img src="assets/icons/pen.svg" alt="" aria-hidden="true">';
 };
@@ -169,7 +172,7 @@ const showPosDiscountDrawer = () => {
           <label class="payment-method-card slim ${discount.type === 'percent' ? 'selected' : ''}" data-discount-type="percent">
             <input type="radio" name="pos-discount-type" value="percent" ${discount.type === 'percent' ? 'checked' : ''}>
             <div class="payment-method-left">
-              ${icon('voucher', '', 'payment-method-icon')}
+              ${icon('percent', '', 'payment-method-icon')}
               <span class="payment-method-name">Phần trăm</span>
             </div>
             <span class="payment-method-dot" aria-hidden="true"></span>
@@ -181,7 +184,7 @@ const showPosDiscountDrawer = () => {
         </div>
         <div class="staff-muted" id="pos-discount-preview" style="margin-top:var(--space-2)"></div>
         <div class="pos-customer-drawer-actions">
-          <button class="btn btn-outline" type="button" id="pos-discount-clear">Xoá giảm giá</button>
+          <button class="btn btn-danger" type="button" id="pos-discount-clear">Xoá giảm giá</button>
           <button class="btn btn-outline" type="button" id="pos-discount-cancel">Thoát</button>
           <button class="btn btn-primary" type="button" id="pos-discount-save">Áp dụng</button>
         </div>
