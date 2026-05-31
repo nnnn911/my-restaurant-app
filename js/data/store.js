@@ -424,6 +424,20 @@ const setUsersToDb = (users) => {
 export const getUsers = () => getUsersFromDb();
 export const saveUsers = (users) => setUsersToDb(users);
 
+export const updateCustomerOnline = async (user = {}) => {
+  const db = ensureDb();
+  const users = sanitizeUsers(db.users || []);
+  const idx = users.findIndex((item) => item.id === user.id);
+  if (idx === -1) throw new Error('Không tìm thấy tài khoản khách hàng.');
+  let updated = sanitizeUser({ ...users[idx], ...user }, users[idx].id);
+  if (shouldUseRemote()) {
+    updated = sanitizeUser(await remoteDataService.updateCustomer(updated), updated.id);
+  }
+  users[idx] = sanitizeUser({ ...users[idx], ...updated }, users[idx].id);
+  saveDb({ ...db, users });
+  return users[idx];
+};
+
 export const createUserOnline = async (user = {}) => {
   const db = ensureDb();
   const users = sanitizeUsers(db.users || []);

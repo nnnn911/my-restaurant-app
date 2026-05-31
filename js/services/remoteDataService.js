@@ -45,6 +45,42 @@ const mapStaffActor = (row = {}) => ({
   createdAt: row.createdAt || row.created_at || '',
 });
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+const resolveStaffActorAuthId = async (client, actor = {}) => {
+  if (actor.authId && UUID_RE.test(actor.authId)) return actor.authId;
+  const lookupId = (actor.authId || actor.id || '').toString().trim();
+  if (!lookupId) throw new Error('Không tìm thấy tài khoản nhân viên.');
+  const query = client
+    .from('profile_details')
+    .select('id, public_code, role')
+    .in('role', ['staff', 'shipper'])
+    .limit(1);
+  const { data, error } = UUID_RE.test(lookupId)
+    ? await query.eq('id', lookupId).maybeSingle()
+    : await query.eq('public_code', lookupId).maybeSingle();
+  if (error) throw error;
+  if (!data?.id) throw new Error('Không tìm thấy nhân viên.');
+  return data.id;
+};
+
+const resolveCustomerAuthId = async (client, user = {}) => {
+  if (user.authId && UUID_RE.test(user.authId)) return user.authId;
+  const lookupId = (user.authId || user.id || '').toString().trim();
+  if (!lookupId) throw new Error('Không tìm thấy tài khoản khách hàng.');
+  const query = client
+    .from('profile_details')
+    .select('id, public_code, role')
+    .eq('role', 'customer')
+    .limit(1);
+  const { data, error } = UUID_RE.test(lookupId)
+    ? await query.eq('id', lookupId).maybeSingle()
+    : await query.eq('public_code', lookupId).maybeSingle();
+  if (error) throw error;
+  if (!data?.id) throw new Error('Không tìm thấy khách hàng.');
+  return data.id;
+};
+
 const mapMonthlyCost = (row = {}) => ({
   id: row.id || row.month,
   month: row.month || '',
@@ -312,6 +348,29 @@ export const remoteDataService = {
     });
   },
 
+  async updateCustomer(user = {}) {
+    const client = requireSupabase();
+    const customerAuthId = await resolveCustomerAuthId(client, user);
+    const { data, error } = await client.rpc('owner_update_customer_user', {
+      customer_id: customerAuthId,
+      payload: {
+        name: user.name || '',
+        phone: user.phone || '',
+        points: Number(user.points || 0),
+      },
+    });
+    if (error) throw error;
+    return mapProfile({
+      id: data?.authId || data?.id,
+      public_code: data?.id,
+      name: data?.name,
+      phone: data?.phone,
+      points: data?.points || user.points || 0,
+      role: 'customer',
+      created_at: data?.createdAt,
+    });
+  },
+
   async getStaffActors() {
     const client = requireSupabase();
     const { data, error } = await client
@@ -340,9 +399,9 @@ export const remoteDataService = {
 
   async updateStaffActor(actor = {}) {
     const client = requireSupabase();
-    if (!actor.authId) throw new Error('Không tìm thấy tài khoản nhân viên.');
+    const actorAuthId = await resolveStaffActorAuthId(client, actor);
     const { data, error } = await client.rpc('owner_update_actor_user', {
-      actor_id: actor.authId,
+      actor_id: actorAuthId,
       payload: {
         name: actor.name || '',
         phone: actor.phone || '',
@@ -357,8 +416,8 @@ export const remoteDataService = {
 
   async deleteStaffActor(actor = {}) {
     const client = requireSupabase();
-    if (!actor.authId) throw new Error('Không tìm thấy tài khoản nhân viên.');
-    const { data, error } = await client.rpc('owner_delete_actor_user', { actor_id: actor.authId });
+    const actorAuthId = await resolveStaffActorAuthId(client, actor);
+    const { data, error } = await client.rpc('owner_delete_actor_user', { actor_id: actorAuthId });
     if (error) throw error;
     return mapStaffActor(data);
   },

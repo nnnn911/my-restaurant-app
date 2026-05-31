@@ -14,9 +14,9 @@ import {
   rerenderOwnerPage,
   formatDate,
   createUserOnline,
+  updateCustomerOnline,
   deleteUserOnline,
   updateUserPointsOnline,
-  saveUsers,
   icon,
   openStaffConfirm,
   escapeAttr,
@@ -265,16 +265,21 @@ const bindCustomerForm = (closeDrawer, customer = null) => {
     }
     const idx = users.findIndex((u) => u.id === id);
     if (idx === -1) return;
-    users[idx] = {
+    const nextCustomer = {
       ...users[idx],
       name: document.getElementById('customer-name').value.trim(),
       phone,
     };
-    saveUsers(users);
-    invalidateOwnerData();
-    toast.success('Đã lưu khách hàng.');
-    closeDrawer?.();
-    rerenderOwnerPage();
+    try {
+      users[idx] = await updateCustomerOnline(nextCustomer);
+      invalidateOwnerData();
+      toast.success('Đã lưu khách hàng.');
+      closeDrawer?.();
+      rerenderOwnerPage();
+    } catch (error) {
+      toast.error(error?.message || 'Không thể lưu khách hàng vào database.');
+      saveBtn.disabled = false;
+    }
   });
   document.getElementById('customer-delete')?.addEventListener('click', async () => {
     const u = getSelectedCustomer();

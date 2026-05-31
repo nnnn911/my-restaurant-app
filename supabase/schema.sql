@@ -654,7 +654,7 @@ create or replace function public.owner_create_actor_user(payload jsonb)
 returns jsonb
 language plpgsql
 security definer
-set search_path = public, auth
+set search_path = public, auth, extensions
 as $$
 declare
   actor_role public.app_role;
@@ -776,7 +776,7 @@ create or replace function public.owner_create_customer_user(payload jsonb)
 returns jsonb
 language plpgsql
 security definer
-set search_path = public, auth
+set search_path = public, auth, extensions
 as $$
 declare
   customer_id uuid := gen_random_uuid();
@@ -883,11 +883,69 @@ begin
 end;
 $$;
 
+create or replace function public.owner_update_customer_user(customer_id uuid, payload jsonb)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, auth, extensions
+as $$
+declare
+  current_role public.app_role;
+  customer_name text;
+  customer_phone text;
+  customer_email text;
+  customer_points integer;
+begin
+  if not public.is_owner() then
+    raise exception 'Only owner can update customers';
+  end if;
+
+  select role into current_role from public.profiles where id = customer_id for update;
+  if not found or current_role <> 'customer' then
+    raise exception 'Không tìm thấy khách hàng.';
+  end if;
+
+  customer_name := coalesce(nullif(payload ->> 'name', ''), 'Khách hàng');
+  customer_phone := public.normalize_phone(payload ->> 'phone');
+  customer_points := greatest(coalesce((payload ->> 'points')::integer, 0), 0);
+  if customer_phone = '' then
+    raise exception 'Số điện thoại không hợp lệ.';
+  end if;
+
+  customer_email := public.phone_auth_email(customer_phone);
+  if exists (select 1 from auth.users where email = customer_email and id <> customer_id) then
+    raise exception 'Số điện thoại đã được sử dụng.';
+  end if;
+
+  insert into public.customer_profiles (id, name, phone, points)
+  values (customer_id, customer_name, customer_phone, customer_points)
+  on conflict (id) do update set
+    name = excluded.name,
+    phone = excluded.phone,
+    points = excluded.points;
+
+  update auth.users
+  set
+    email = customer_email,
+    raw_user_meta_data = jsonb_build_object('name', customer_name, 'phone', customer_phone, 'role', 'customer'),
+    updated_at = now()
+  where id = customer_id;
+
+  update auth.identities
+  set
+    identity_data = jsonb_build_object('sub', customer_id::text, 'email', customer_email, 'email_verified', true, 'phone', customer_phone),
+    updated_at = now()
+  where user_id = customer_id and provider = 'email';
+
+  return public.actor_profile_json(customer_id);
+end;
+$$;
+
 create or replace function public.owner_update_actor_user(actor_id uuid, payload jsonb)
 returns jsonb
 language plpgsql
 security definer
-set search_path = public, auth
+set search_path = public, auth, extensions
 as $$
 declare
   current_role public.app_role;
@@ -1920,6 +1978,7 @@ grant select, insert, update, delete on table public.app_sequences to authentica
 
 grant execute on function public.redeem_points_for_voucher(integer) to authenticated;
 grant execute on function public.owner_create_customer_user(jsonb) to authenticated;
+grant execute on function public.owner_update_customer_user(uuid, jsonb) to authenticated;
 grant execute on function public.owner_create_actor_user(jsonb) to authenticated;
 grant execute on function public.owner_update_actor_user(uuid, jsonb) to authenticated;
 grant execute on function public.owner_delete_actor_user(uuid) to authenticated;
