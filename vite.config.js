@@ -36,6 +36,7 @@ export default defineConfig({
         ownerReports: 'owner-reports.html',
         ownerCustomers: 'owner-customers.html',
         ownerStaff: 'owner-staff.html',
+        ownerCosts: 'owner-costs.html',
         ownerVouchers: 'owner-vouchers.html',
         shipper: 'shipper.html'
       }

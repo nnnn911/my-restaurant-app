@@ -14,6 +14,7 @@ const sanitizeActor = (actor = {}, fallbackRole = 'staff') => ({
   authId: actor.authId || null,
   name: (actor.name || '').toString(),
   phone: normalizePhone(actor.phone),
+  salaryVnd: Math.max(0, Number(actor.salaryVnd || 0)),
   password: (actor.password || '').toString(),
   role: actor.role === 'shipper' ? 'shipper' : fallbackRole,
   createdAt: actor.createdAt || nowIso(),
@@ -26,6 +27,7 @@ const writeLocalRoleActors = (key, actors) => {
     id: actor.id,
     name: actor.name,
     phone: actor.phone,
+    salaryVnd: Number(actor.salaryVnd || 0),
     password: actor.password || '',
     createdAt: actor.createdAt || nowIso(),
   })));

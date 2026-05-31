@@ -72,6 +72,19 @@ const normalizeVoucher = (voucher = {}) => ({
   active: Boolean(voucher.active),
 });
 
+const normalizeMonthlyCost = (cost = {}) => ({
+  id: cost.id || cost.month,
+  month: (cost.month || '').toString().slice(0, 7),
+  electricity: Math.max(0, Number(cost.electricity || 0)),
+  water: Math.max(0, Number(cost.water || 0)),
+  rent: Math.max(0, Number(cost.rent || 0)),
+  ingredients: Math.max(0, Number(cost.ingredients || 0)),
+  staffSalary: Math.max(0, Number(cost.staffSalary ?? cost.staff_salary ?? 0)),
+  note: (cost.note || '').toString(),
+  createdAt: cost.createdAt || cost.created_at || nowIso(),
+  updatedAt: cost.updatedAt || cost.updated_at || nowIso(),
+});
+
 const normalizeOrderRecord = (order = {}) => ({
   ...order,
   paymentMethod: normalizePaymentMethod(order.paymentMethod),
@@ -187,6 +200,7 @@ const createEmptyDb = () => ({
   vouchers: null,
   menu: null,
   reservations: [],
+  monthlyCosts: [],
   meta: {},
 });
 
@@ -197,6 +211,7 @@ const normalizeCacheDb = (db = {}) => normalizeDbUsers({
   users: sanitizeUsers(db.users || []),
   orders: (db.orders || []).map(normalizeOrderRecord),
   reservations: Array.isArray(db.reservations) ? db.reservations : [],
+  monthlyCosts: Array.isArray(db.monthlyCosts) ? db.monthlyCosts.map(normalizeMonthlyCost) : [],
   vouchers: Array.isArray(db.vouchers) ? db.vouchers.map(normalizeVoucher) : [],
   menu: Array.isArray(db.menu) ? db.menu.map((item) => ({ ...item, sold: Number(item.sold || 0) })) : [],
   meta: db.meta && typeof db.meta === 'object' ? { ...db.meta } : {},
@@ -319,11 +334,12 @@ export const hydrateOnlineData = async () => {
       nextDb.currentUserId = profile.id;
     }
 
-    const [menu, vouchers, orders, reservations, cart, users, userVoucherCodes] = await Promise.all([
+    const [menu, vouchers, orders, reservations, monthlyCosts, cart, users, userVoucherCodes] = await Promise.all([
       remoteDataService.getMenu().catch(() => null),
       remoteDataService.getVouchers().catch(() => null),
       remoteDataService.getOrders().catch(() => null),
       remoteDataService.getReservations().catch(() => null),
+      ['owner', 'staff'].includes(profile?.role) ? remoteDataService.getMonthlyCosts().catch(() => null) : Promise.resolve(null),
       profile?.role === 'customer' ? remoteDataService.getCart().catch(() => null) : Promise.resolve(null),
       ['owner', 'staff'].includes(profile?.role) ? remoteDataService.getUsers().catch(() => null) : Promise.resolve(null),
       profile?.role === 'customer' ? remoteDataService.getCurrentUserVoucherCodes().catch(() => null) : Promise.resolve(null),
@@ -333,6 +349,7 @@ export const hydrateOnlineData = async () => {
     if (Array.isArray(vouchers)) nextDb.vouchers = vouchers;
     if (Array.isArray(orders)) nextDb.orders = orders.map(normalizeOrderRecord);
     if (Array.isArray(reservations)) nextDb.reservations = reservations;
+    if (Array.isArray(monthlyCosts)) nextDb.monthlyCosts = monthlyCosts.map(normalizeMonthlyCost);
     if (Array.isArray(users)) nextDb.users = users.map((user) => sanitizeUser(user, user.id));
     if (profile?.role === 'customer' && Array.isArray(cart)) {
       nextDb.carts = { ...(nextDb.carts || {}), [profile.id]: cart };
@@ -455,6 +472,25 @@ export const updateUserPointsOnline = async (userId, points) => {
   const nextDb = saveDb({ ...db, users });
   if (nextDb.currentUserId === userId) saveCurrentUser(users[idx]);
   return users[idx];
+};
+
+export const getMonthlyCosts = () => ensureDb().monthlyCosts || [];
+
+export const saveMonthlyCostOnline = async (cost = {}) => {
+  const db = ensureDb();
+  let nextCost = normalizeMonthlyCost(cost);
+  if (!/^\d{4}-\d{2}$/.test(nextCost.month)) throw new Error('Tháng chi phí không hợp lệ.');
+  if (shouldUseRemote()) nextCost = normalizeMonthlyCost(await remoteDataService.saveMonthlyCost(nextCost));
+  const costs = (db.monthlyCosts || []).filter((item) => item.month !== nextCost.month);
+  saveDb({ ...db, monthlyCosts: [...costs, nextCost].sort((a, b) => b.month.localeCompare(a.month)) });
+  return nextCost;
+};
+
+export const deleteMonthlyCostOnline = async (month) => {
+  const safeMonth = (month || '').toString().slice(0, 7);
+  if (shouldUseRemote()) await remoteDataService.deleteMonthlyCost(safeMonth);
+  const db = ensureDb();
+  saveDb({ ...db, monthlyCosts: (db.monthlyCosts || []).filter((item) => item.month !== safeMonth) });
 };
 
 export const getCurrentUser = () => {

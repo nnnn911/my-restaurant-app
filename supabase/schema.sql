@@ -52,6 +52,7 @@ create table if not exists public.staff_profiles (
   id uuid primary key references public.profiles(id) on delete cascade,
   name text not null,
   phone text unique,
+  salary_vnd integer not null default 0 check (salary_vnd >= 0),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -68,9 +69,16 @@ create table if not exists public.shipper_profiles (
   id uuid primary key references public.profiles(id) on delete cascade,
   name text not null,
   phone text unique,
+  salary_vnd integer not null default 0 check (salary_vnd >= 0),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+alter table public.staff_profiles
+  add column if not exists salary_vnd integer not null default 0 check (salary_vnd >= 0);
+
+alter table public.shipper_profiles
+  add column if not exists salary_vnd integer not null default 0 check (salary_vnd >= 0);
 
 do $$
 begin
@@ -122,6 +130,7 @@ select
   coalesce(cp.name, sp.name, op.name, shp.name, '') as name,
   coalesce(cp.phone, sp.phone, op.phone, shp.phone) as phone,
   coalesce(cp.points, 0) as points,
+  coalesce(sp.salary_vnd, shp.salary_vnd, 0) as salary_vnd,
   p.created_at,
   p.updated_at
 from public.profiles p
@@ -269,6 +278,19 @@ create table if not exists public.reservations (
   updated_at timestamptz not null default now()
 );
 
+create table if not exists public.monthly_costs (
+  id uuid primary key default gen_random_uuid(),
+  month text not null unique check (month ~ '^\d{4}-\d{2}$'),
+  electricity integer not null default 0 check (electricity >= 0),
+  water integer not null default 0 check (water >= 0),
+  rent integer not null default 0 check (rent >= 0),
+  ingredients integer not null default 0 check (ingredients >= 0),
+  staff_salary integer not null default 0 check (staff_salary >= 0),
+  note text not null default '',
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
 create table if not exists public.app_sequences (
   key text primary key,
   value integer not null default 0 check (value >= 0)
@@ -341,6 +363,10 @@ for each row execute function public.touch_updated_at();
 
 drop trigger if exists reservations_touch_updated_at on public.reservations;
 create trigger reservations_touch_updated_at before update on public.reservations
+for each row execute function public.touch_updated_at();
+
+drop trigger if exists monthly_costs_touch_updated_at on public.monthly_costs;
+create trigger monthly_costs_touch_updated_at before update on public.monthly_costs
 for each row execute function public.touch_updated_at();
 
 create or replace function public.current_app_role()
@@ -613,6 +639,7 @@ as $$
     'authId', p.id,
     'name', d.name,
     'phone', d.phone,
+    'salaryVnd', d.salary_vnd,
     'role', p.role,
     'createdAt', p.created_at
   )
@@ -635,6 +662,7 @@ declare
   actor_password text;
   actor_email text;
   actor_code text;
+  actor_salary_vnd integer;
 begin
   if not public.is_owner() then
     raise exception 'Only owner can create staff users';
@@ -648,6 +676,7 @@ begin
   actor_name := coalesce(nullif(payload ->> 'name', ''), 'Nhân viên');
   actor_phone := public.normalize_phone(payload ->> 'phone');
   actor_password := coalesce(nullif(payload ->> 'password', ''), '');
+  actor_salary_vnd := greatest(coalesce((payload ->> 'salaryVnd')::integer, coalesce((payload ->> 'salary_vnd')::integer, 0)), 0);
   if actor_phone = '' then
     raise exception 'Số điện thoại không hợp lệ.';
   end if;
@@ -728,13 +757,13 @@ begin
     role = excluded.role;
 
   if actor_role = 'shipper' then
-    insert into public.shipper_profiles (id, name, phone)
-    values (actor_id, actor_name, actor_phone)
-    on conflict (id) do update set name = excluded.name, phone = excluded.phone;
+    insert into public.shipper_profiles (id, name, phone, salary_vnd)
+    values (actor_id, actor_name, actor_phone, actor_salary_vnd)
+    on conflict (id) do update set name = excluded.name, phone = excluded.phone, salary_vnd = excluded.salary_vnd;
   else
-    insert into public.staff_profiles (id, name, phone)
-    values (actor_id, actor_name, actor_phone)
-    on conflict (id) do update set name = excluded.name, phone = excluded.phone;
+    insert into public.staff_profiles (id, name, phone, salary_vnd)
+    values (actor_id, actor_name, actor_phone, actor_salary_vnd)
+    on conflict (id) do update set name = excluded.name, phone = excluded.phone, salary_vnd = excluded.salary_vnd;
   end if;
 
   return public.actor_profile_json(actor_id);
@@ -865,6 +894,7 @@ declare
   actor_phone text;
   actor_password text;
   actor_email text;
+  actor_salary_vnd integer;
   next_code text;
 begin
   if not public.is_owner() then
@@ -884,6 +914,7 @@ begin
   actor_name := coalesce(nullif(payload ->> 'name', ''), 'Nhân viên');
   actor_phone := public.normalize_phone(payload ->> 'phone');
   actor_password := coalesce(nullif(payload ->> 'password', ''), '');
+  actor_salary_vnd := greatest(coalesce((payload ->> 'salaryVnd')::integer, coalesce((payload ->> 'salary_vnd')::integer, 0)), 0);
   if actor_phone = '' then
     raise exception 'Số điện thoại không hợp lệ.';
   end if;
@@ -904,13 +935,13 @@ begin
   end if;
 
   if next_role = 'shipper' then
-    insert into public.shipper_profiles (id, name, phone)
-    values (actor_id, actor_name, actor_phone)
-    on conflict (id) do update set name = excluded.name, phone = excluded.phone;
+    insert into public.shipper_profiles (id, name, phone, salary_vnd)
+    values (actor_id, actor_name, actor_phone, actor_salary_vnd)
+    on conflict (id) do update set name = excluded.name, phone = excluded.phone, salary_vnd = excluded.salary_vnd;
   else
-    insert into public.staff_profiles (id, name, phone)
-    values (actor_id, actor_name, actor_phone)
-    on conflict (id) do update set name = excluded.name, phone = excluded.phone;
+    insert into public.staff_profiles (id, name, phone, salary_vnd)
+    values (actor_id, actor_name, actor_phone, actor_salary_vnd)
+    on conflict (id) do update set name = excluded.name, phone = excluded.phone, salary_vnd = excluded.salary_vnd;
   end if;
 
   update auth.users
@@ -1531,6 +1562,7 @@ create index if not exists idx_pos_order_items_order_id on public.pos_order_item
 create index if not exists idx_reservations_user_created_at on public.reservations(user_id, created_at desc);
 create index if not exists idx_reservations_status_needed_date on public.reservations(status, needed_date);
 create index if not exists idx_cart_items_cart_id on public.cart_items(cart_id);
+create index if not exists idx_monthly_costs_month on public.monthly_costs(month desc);
 
 alter table public.profiles enable row level security;
 alter table public.customer_profiles enable row level security;
@@ -1547,6 +1579,7 @@ alter table public.order_items enable row level security;
 alter table public.pos_orders enable row level security;
 alter table public.pos_order_items enable row level security;
 alter table public.reservations enable row level security;
+alter table public.monthly_costs enable row level security;
 alter table public.app_sequences enable row level security;
 
 drop policy if exists "profiles_select_own_or_staff" on public.profiles;
@@ -1836,6 +1869,13 @@ to authenticated
 using (public.is_staff_or_owner())
 with check (public.is_staff_or_owner());
 
+drop policy if exists "monthly_costs_owner_only" on public.monthly_costs;
+create policy "monthly_costs_owner_only"
+on public.monthly_costs for all
+to authenticated
+using (public.is_owner())
+with check (public.is_owner());
+
 drop policy if exists "app_sequences_owner_only" on public.app_sequences;
 create policy "app_sequences_owner_only"
 on public.app_sequences for all
@@ -1873,6 +1913,7 @@ grant select, insert, update, delete on table public.order_items to authenticate
 grant select, insert, update, delete on table public.pos_orders to authenticated;
 grant select, insert, update, delete on table public.pos_order_items to authenticated;
 grant select, insert, update, delete on table public.reservations to authenticated;
+grant select, insert, update, delete on table public.monthly_costs to authenticated;
 grant select, insert, update, delete on table public.app_sequences to authenticated;
 
 grant execute on function public.redeem_points_for_voucher(integer) to authenticated;

@@ -195,7 +195,8 @@
 .form-control::placeholder { color: var(--color-text-light); }
 .form-control.error { border-color: var(--color-danger); }
 
-.datetime-flatpickr {
+.datetime-flatpickr,
+.month-flatpickr {
   font-variant-numeric: tabular-nums;
 }
 

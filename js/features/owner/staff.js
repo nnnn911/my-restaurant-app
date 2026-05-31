@@ -33,6 +33,7 @@ let staffSort = 'id-asc';
 let staffSheetPage = 1;
 
 const normalizePhone = (phone = '') => phone.toString().trim().replace(/\s+/g, '');
+const formatSalary = (value) => `${Math.max(0, Number(value || 0)).toLocaleString('vi-VN')} VND`;
 
 const roleBadge = (role) => `<span class="badge ${role === 'shipper' ? 'badge-warning' : 'badge-success'}">${escapeHtml(ROLE_LABELS[role] || role)}</span>`;
 
@@ -59,12 +60,13 @@ const getFilteredActors = () => {
   const q = staffSearch.trim().toLowerCase();
   return [...staffActors]
     .filter((actor) => staffRoleFilter === 'all' || actor.role === staffRoleFilter)
-    .filter((actor) => `${actor.id} ${actor.name} ${actor.phone} ${ROLE_LABELS[actor.role] || actor.role} ${actor.createdAt}`.toLowerCase().includes(q))
+    .filter((actor) => `${actor.id} ${actor.name} ${actor.phone} ${actor.salaryVnd} ${ROLE_LABELS[actor.role] || actor.role} ${actor.createdAt}`.toLowerCase().includes(q))
     .sort((a, b) => {
       const { key, dir } = getSortState(staffSort, 'id');
       const direction = dir === 'desc' ? -1 : 1;
       if (key === 'name') return (a.name || '').localeCompare(b.name || '', 'vi') * direction;
       if (key === 'phone') return (a.phone || '').localeCompare(b.phone || '', 'vi', { numeric: true }) * direction;
+      if (key === 'salaryVnd') return (Number(a.salaryVnd || 0) - Number(b.salaryVnd || 0)) * direction;
       if (key === 'role') return (a.role || '').localeCompare(b.role || '', 'vi') * direction;
       if (key === 'createdAt' || key === 'joined') return (new Date(a.createdAt || 0) - new Date(b.createdAt || 0)) * direction;
       return (a.id || '').localeCompare(b.id || '', 'vi', { numeric: true }) * direction;
@@ -103,25 +105,27 @@ export const renderStaffPage = () => {
                   <th>${sheetSortButton('data-staff-sort', staffSort, 'name', 'Tên')}</th>
                   <th>${sheetSortButton('data-staff-sort', staffSort, 'phone', 'Số điện thoại')}</th>
                   <th>${sheetSortButton('data-staff-sort', staffSort, 'role', 'Vai trò')}</th>
+                  <th>${sheetSortButton('data-staff-sort', staffSort, 'salaryVnd', 'Lương')}</th>
                   <th>${sheetSortButton('data-staff-sort', staffSort, 'createdAt', 'Ngày tạo')}</th>
                   <th>${sheetSortButton('data-staff-sort', staffSort, 'joined', 'Đã tham gia')}</th>
                 </tr>
               </thead>
               <tbody>
-                ${staffLoading ? `<tr><td colspan="6"><div class="empty-state"><h3>Đang tải...</h3></div></td></tr>` : ''}
-                ${staffError ? `<tr><td colspan="6"><div class="empty-state"><h3>Không thể tải dữ liệu</h3><p>${escapeHtml(staffError)}</p></div></td></tr>` : ''}
+                ${staffLoading ? `<tr><td colspan="7"><div class="empty-state"><h3>Đang tải...</h3></div></td></tr>` : ''}
+                ${staffError ? `<tr><td colspan="7"><div class="empty-state"><h3>Không thể tải dữ liệu</h3><p>${escapeHtml(staffError)}</p></div></td></tr>` : ''}
                 ${!staffLoading && !staffError ? paged.rows.map((actor) => `
                   <tr data-staff-id="${escapeAttr(actor.id)}">
                     <td>${escapeHtml(actor.id)}</td>
                     <td>${escapeHtml(actor.name || 'Nhân viên')}</td>
                     <td>${escapeHtml(actor.phone || '')}</td>
                     <td>${roleBadge(actor.role)}</td>
+                    <td>${escapeHtml(formatSalary(actor.salaryVnd))}</td>
                     <td>${escapeHtml(actor.createdAt ? formatDate(actor.createdAt) : '-')}</td>
                     <td>${escapeHtml(getJoinedDuration(actor.createdAt).replace('Đã tham gia ', ''))}</td>
                   </tr>
-                `).join('') || `<tr><td colspan="6"><div class="empty-state"><h3>Không tìm thấy nhân viên</h3></div></td></tr>` : ''}
+                `).join('') || `<tr><td colspan="7"><div class="empty-state"><h3>Không tìm thấy nhân viên</h3></div></td></tr>` : ''}
               </tbody>
-              ${ownerPaginationTableFooterHtml({ total: filtered.length, page: staffSheetPage, pageCount: paged.pageCount, label: 'nhân viên', prevId: 'staff-prev', nextId: 'staff-next', colspan: 6 })}
+              ${ownerPaginationTableFooterHtml({ total: filtered.length, page: staffSheetPage, pageCount: paged.pageCount, label: 'nhân viên', prevId: 'staff-prev', nextId: 'staff-next', colspan: 7 })}
             </table>
           </div>
         </div>
@@ -149,6 +153,10 @@ const renderStaffForm = (actor = null) => {
             <option value="staff"${(actor?.role || 'staff') === 'staff' ? ' selected' : ''}>Nhân viên</option>
             <option value="shipper"${actor?.role === 'shipper' ? ' selected' : ''}>Shipper</option>
           </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="staff-salary">Lương (VND)</label>
+          <input class="form-control" id="staff-salary" type="number" min="0" step="100000" value="${Number(actor?.salaryVnd || 0)}">
         </div>
         <div class="form-group">
           <label class="form-label" for="staff-password">${isEdit ? 'Mật khẩu mới' : 'Mật khẩu'}</label>
@@ -188,6 +196,7 @@ const bindStaffForm = (closeDrawer, actor = null) => {
       name: document.getElementById('staff-name')?.value.trim() || '',
       phone: normalizePhone(document.getElementById('staff-phone')?.value || ''),
       role: document.getElementById('staff-role')?.value || 'staff',
+      salaryVnd: Math.max(0, Number(document.getElementById('staff-salary')?.value || 0)),
       password: document.getElementById('staff-password')?.value || '',
     };
     if (!actor && !nextActor.password) {

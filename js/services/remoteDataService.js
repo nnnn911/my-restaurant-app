@@ -40,8 +40,22 @@ const mapStaffActor = (row = {}) => ({
   authId: row.authId || row.id,
   name: row.name || '',
   phone: row.phone || '',
+  salaryVnd: Number(row.salaryVnd ?? row.salary_vnd ?? 0),
   role: row.role || 'staff',
   createdAt: row.createdAt || row.created_at || '',
+});
+
+const mapMonthlyCost = (row = {}) => ({
+  id: row.id || row.month,
+  month: row.month || '',
+  electricity: Number(row.electricity || 0),
+  water: Number(row.water || 0),
+  rent: Number(row.rent || 0),
+  ingredients: Number(row.ingredients || 0),
+  staffSalary: Number(row.staff_salary ?? row.staffSalary ?? 0),
+  note: row.note || '',
+  createdAt: row.created_at || row.createdAt || '',
+  updatedAt: row.updated_at || row.updatedAt || '',
 });
 
 const mapOrderItem = (row = {}) => ({
@@ -187,6 +201,16 @@ const toMenuRow = (item = {}, sortOrder = 0) => ({
   sort_order: sortOrder,
 });
 
+const toMonthlyCostRow = (cost = {}) => ({
+  month: (cost.month || '').toString().slice(0, 7),
+  electricity: Math.max(0, Number(cost.electricity || 0)),
+  water: Math.max(0, Number(cost.water || 0)),
+  rent: Math.max(0, Number(cost.rent || 0)),
+  ingredients: Math.max(0, Number(cost.ingredients || 0)),
+  staff_salary: Math.max(0, Number(cost.staffSalary ?? cost.staff_salary ?? 0)),
+  note: (cost.note || '').toString(),
+});
+
 const normalizePaymentMethod = (method) => {
   const value = (method || 'cash').toString();
   return value === 'transfer' ? 'bank' : value;
@@ -307,6 +331,7 @@ export const remoteDataService = {
         phone: actor.phone || '',
         role: actor.role || 'staff',
         password: actor.password || '',
+        salaryVnd: Number(actor.salaryVnd || 0),
       },
     });
     if (error) throw error;
@@ -323,6 +348,7 @@ export const remoteDataService = {
         phone: actor.phone || '',
         role: actor.role || 'staff',
         password: actor.password || '',
+        salaryVnd: Number(actor.salaryVnd || 0),
       },
     });
     if (error) throw error;
@@ -335,6 +361,34 @@ export const remoteDataService = {
     const { data, error } = await client.rpc('owner_delete_actor_user', { actor_id: actor.authId });
     if (error) throw error;
     return mapStaffActor(data);
+  },
+
+  async getMonthlyCosts() {
+    const client = requireSupabase();
+    const { data, error } = await client
+      .from('monthly_costs')
+      .select('*')
+      .order('month', { ascending: false });
+    if (error) throw error;
+    return (data || []).map(mapMonthlyCost);
+  },
+
+  async saveMonthlyCost(cost = {}) {
+    const client = requireSupabase();
+    const row = toMonthlyCostRow(cost);
+    const { data, error } = await client
+      .from('monthly_costs')
+      .upsert(row, { onConflict: 'month' })
+      .select('*')
+      .single();
+    if (error) throw error;
+    return mapMonthlyCost(data);
+  },
+
+  async deleteMonthlyCost(month) {
+    const client = requireSupabase();
+    const { error } = await client.from('monthly_costs').delete().eq('month', (month || '').toString().slice(0, 7));
+    if (error) throw error;
   },
 
   async saveUsers(users = []) {
@@ -785,6 +839,7 @@ export const remoteDataService = {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'pos_orders' }, onChange)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'pos_order_items' }, onChange)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'reservations' }, onChange)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'monthly_costs' }, onChange)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'menu_items' }, onChange)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'vouchers' }, onChange)
       .subscribe();

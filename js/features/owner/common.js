@@ -3,13 +3,16 @@ import {
   formatPrice,
   getMenu,
   getOrders,
+  getMonthlyCosts,
   getUsers,
   getVouchers,
   createUserOnline,
   deleteMenuItemOnline,
   deleteUserOnline,
+  deleteMonthlyCostOnline,
   deleteVoucherOnline,
   saveMenu,
+  saveMonthlyCostOnline,
   updateUserPointsOnline,
   saveUsers,
   saveVouchers,
@@ -203,4 +206,4 @@ export const scheduleRenderPage = () => {
   searchRenderTimer = window.setTimeout(rerenderOwnerPage, 180);
 };
 
-export { formatDate, formatPrice, getMenu, getOrders, getUsers, getVouchers, createUserOnline, deleteMenuItemOnline, deleteUserOnline, deleteVoucherOnline, saveMenu, updateUserPointsOnline, saveUsers, saveVouchers, icon, openStaffConfirm, escapeAttr, escapeHtml };
+export { formatDate, formatPrice, getMenu, getOrders, getMonthlyCosts, getUsers, getVouchers, createUserOnline, deleteMenuItemOnline, deleteUserOnline, deleteMonthlyCostOnline, deleteVoucherOnline, saveMenu, saveMonthlyCostOnline, updateUserPointsOnline, saveUsers, saveVouchers, icon, openStaffConfirm, escapeAttr, escapeHtml };

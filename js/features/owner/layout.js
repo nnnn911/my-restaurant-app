@@ -51,6 +51,7 @@ export const renderOwnerShell = ({ active = 'dashboard', contentHtml = '' } = {}
           ${navItem('vouchers', 'Quản lý voucher', 'owner-vouchers.html', 'voucher')}
           ${navItem('customers', 'Quản lý khách hàng', 'owner-customers.html', 'user')}
           ${navItem('staff', 'Quản lý nhân viên', 'owner-staff.html', 'addpeople')}
+          ${navItem('costs', 'Quản lý chi phí', 'owner-costs.html', 'dollar')}
         </nav>
       </aside>
 

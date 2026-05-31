@@ -7,6 +7,7 @@ import { renderMenuPage, bindMenuPage } from './menu.js';
 import { renderVoucherPage, bindVoucherPage } from './vouchers.js';
 import { renderCustomersPage, bindCustomersPage } from './customers.js';
 import { renderStaffPage, bindStaffPage } from './staff.js';
+import { renderCostsPage, bindCostsPage } from './costs.js';
 import {
   bindDashboardPage,
   bindReportsPage,
@@ -93,6 +94,7 @@ const getPageHtml = () => {
   if (PAGE === 'vouchers') return renderVoucherPage();
   if (PAGE === 'customers') return renderCustomersPage();
   if (PAGE === 'staff') return renderStaffPage();
+  if (PAGE === 'costs') return renderCostsPage();
   return renderMenuPage();
 };
 
@@ -103,6 +105,7 @@ const bindPage = () => {
   else if (PAGE === 'vouchers') bindVoucherPage();
   else if (PAGE === 'customers') bindCustomersPage();
   else if (PAGE === 'staff') bindStaffPage();
+  else if (PAGE === 'costs') bindCostsPage();
   else bindMenuPage();
 };
 

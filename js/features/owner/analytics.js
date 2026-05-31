@@ -18,13 +18,17 @@ import {
   escapeHtml
 } from './common.js';
 import { getReservations } from '../../data/store.js';
+import { getMonthlyCosts } from '../../data/store.js';
 import { toast } from '../../ui/toast.js';
-import { bindSegmentedDateTimeInputs, getDateTimeValue, segmentedDateTimeInput } from '../../ui/datetime.js';
+import { bindSegmentedDateTimeInputs, bindSegmentedMonthInputs, getDateTimeValue, getMonthValue, segmentedDateTimeInput, segmentedMonthInput } from '../../ui/datetime.js';
 import Chart from 'chart.js/auto';
 
 let analyticsRange = '7d';
 let analyticsCustomStart = '';
 let analyticsCustomEnd = '';
+let profitRange = 'current';
+let profitCustomStart = '';
+let profitCustomEnd = '';
 let reportTab = 'revenue';
 let reportGroupBy = 'day';
 let recentOrderSort = 'createdAt-desc';
@@ -48,6 +52,13 @@ let pendingOwnerCharts = [];
 let mountedOwnerCharts = [];
 const ORDER_PAGE_SIZE = 10;
 const REPORT_SHEET_PAGE_SIZE = 20;
+
+const monthlyCostTotal = (cost = {}) =>
+  Number(cost.electricity || 0)
+  + Number(cost.water || 0)
+  + Number(cost.rent || 0)
+  + Number(cost.ingredients || 0)
+  + Number(cost.staffSalary || cost.staff_salary || 0);
 
 const ORDER_STATUS = {
   pending: { label: 'Chờ xác nhận', className: 'badge-warning' },
@@ -78,6 +89,12 @@ const pad2 = (n) => String(n).padStart(2, '0');
 const toInputDate = (date) => `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
 const dayKey = (date) => toInputDate(date);
 const monthKey = (date) => `${date.getFullYear()}-${pad2(date.getMonth() + 1)}`;
+const addMonths = (date, offset) => {
+  const d = new Date(date);
+  d.setDate(1);
+  d.setMonth(d.getMonth() + offset);
+  return d;
+};
 const weekKey = (date) => {
   const d = new Date(date);
   d.setHours(0, 0, 0, 0);
@@ -513,7 +530,34 @@ const customRangeLabel = () => {
   return `${shortDate(analyticsCustomStart)} - ${shortDate(analyticsCustomEnd)}`;
 };
 
-const rangeCaptionHtml = () => {
+const profitMonthRange = () => {
+  const now = new Date();
+  const end = monthKey(now);
+  if (profitRange === 'all') return { startMonth: '', endMonth: '', label: 'Tất cả' };
+  if (profitRange === 'current') return { startMonth: end, endMonth: end, label: 'Tháng này' };
+  if (profitRange === '3m') return { startMonth: monthKey(addMonths(now, -2)), endMonth: end, label: '3 tháng' };
+  if (profitRange === '12m') return { startMonth: monthKey(addMonths(now, -11)), endMonth: end, label: '12 tháng' };
+  if (profitRange === 'custom') {
+    const startMonth = /^\d{4}-\d{2}$/.test(profitCustomStart) ? profitCustomStart : end;
+    const endMonth = /^\d{4}-\d{2}$/.test(profitCustomEnd) ? profitCustomEnd : end;
+    return startMonth <= endMonth
+      ? { startMonth, endMonth, label: 'Tuỳ chỉnh' }
+      : { startMonth: endMonth, endMonth: startMonth, label: 'Tuỳ chỉnh' };
+  }
+  return { startMonth: monthKey(addMonths(now, -5)), endMonth: end, label: '6 tháng' };
+};
+
+const profitCustomRangeLabel = () => {
+  if (profitRange !== 'custom' || !profitCustomStart || !profitCustomEnd) return 'Tuỳ chỉnh';
+  return `${profitCustomStart} - ${profitCustomEnd}`;
+};
+
+const rangeCaptionHtml = ({ monthly = false } = {}) => {
+  if (monthly) {
+    const { startMonth, endMonth, label } = profitMonthRange();
+    const detail = profitRange === 'all' ? 'Toàn bộ dữ liệu theo tháng' : `${startMonth} - ${endMonth}`;
+    return `<div class="owner-range-caption">Đang xem: <strong>${escapeHtml(label)}</strong><span>${escapeHtml(detail)}</span></div>`;
+  }
   const { start, end, label } = getDateRange();
   const detail = analyticsRange === 'all'
     ? 'Toàn bộ dữ liệu đơn hàng'
@@ -521,7 +565,37 @@ const rangeCaptionHtml = () => {
   return `<div class="owner-range-caption">Đang xem: <strong>${escapeHtml(label)}</strong><span>${escapeHtml(detail)}</span></div>`;
 };
 
-const timeFilterHtml = ({ includeAll = false } = {}) => {
+const timeFilterHtml = ({ includeAll = false, monthly = false } = {}) => {
+  if (monthly) {
+    const range = profitMonthRange();
+    const quick = [
+      ['current', 'Tháng này'],
+      ['3m', '3 tháng'],
+      ['6m', '6 tháng'],
+      ['12m', '12 tháng'],
+      ['all', 'Tất cả'],
+    ];
+    return `
+      <div class="owner-analytics-filter" aria-label="Bộ lọc tháng">
+        <div class="owner-chip-row">
+          ${quick.map(([id, label]) => `<button class="chip${profitRange === id ? ' active' : ''}" data-range="${id}" type="button">${label}</button>`).join('')}
+          <div class="owner-custom-filter">
+            <button class="chip owner-custom-filter-btn${profitRange === 'custom' ? ' active' : ''}" data-range-custom-toggle type="button">
+              <span>${escapeHtml(profitCustomRangeLabel())}</span>
+              <img src="assets/icons/chevron.svg" alt="" aria-hidden="true">
+            </button>
+            ${analyticsCustomMenuOpen ? `
+              <div class="owner-custom-filter-menu" role="menu">
+                <label>Tháng bắt đầu${segmentedMonthInput('profit-start', profitCustomStart || range.startMonth || monthKey(new Date()))}</label>
+                <label>Tháng kết thúc${segmentedMonthInput('profit-end', profitCustomEnd || range.endMonth || monthKey(new Date()))}</label>
+                <button class="btn btn-primary btn-sm" id="analytics-apply-custom" type="button">Áp dụng</button>
+              </div>
+            ` : ''}
+          </div>
+        </div>
+      </div>
+    `;
+  }
   const range = getDateRange();
   const quick = [
     ...(includeAll ? [['all', 'Tất cả'], ['today', 'Hôm nay']] : [['today', 'Hôm nay']]),
@@ -663,7 +737,7 @@ const lineChartHtml = (rows, valueKey = 'revenue', { showLegend = true, showAxes
     rows: chartRows.map((row) => ({ ...row, label: chartAxisDateLabel(row.date, mode) })),
     valueKey,
     labelKey: 'label',
-    money: valueKey === 'revenue',
+    money: ['revenue', 'profit', 'totalCost'].includes(valueKey),
     mode,
     height: 300,
     emptyHtml: `<div class="owner-chart-empty empty-state"><h3>Chưa có dữ liệu</h3><p>Thử chọn khoảng thời gian khác.</p></div>`,
@@ -942,19 +1016,88 @@ const renderOrdersTab = (orders) => {
   `;
 };
 
+const monthDate = (month) => parseDate(`${month}-01`) || new Date(0);
+
+const monthsBetween = (startMonth, endMonth) => {
+  if (!startMonth || !endMonth) return [];
+  const start = monthDate(startMonth);
+  const end = monthDate(endMonth);
+  if (!start || !end || start > end) return [];
+  const months = [];
+  const cursor = new Date(start);
+  cursor.setDate(1);
+  while (cursor <= end) {
+    months.push(monthKey(cursor));
+    cursor.setMonth(cursor.getMonth() + 1);
+  }
+  return months;
+};
+
+const getProfitRows = (orders) => {
+  const range = profitMonthRange();
+  const inRange = (month) => profitRange === 'all' || (month >= range.startMonth && month <= range.endMonth);
+  const revenueOrdersInRange = orders.filter((order) => inRange(monthKey(order.createdAt)));
+  const monthlyCostsInRange = getMonthlyCosts().filter((cost) => inRange(cost.month));
+  const revenueRows = aggregateBy(revenueOrdersInRange, 'month');
+  const revenueByMonth = new Map(revenueRows.map((row) => [row.label, row.revenue]));
+  const costByMonth = new Map(monthlyCostsInRange.map((cost) => [cost.month, monthlyCostTotal(cost)]));
+  const monthsInProfitRange = profitRange === 'all'
+    ? [...new Set([...revenueByMonth.keys(), ...costByMonth.keys()])]
+    : monthsBetween(range.startMonth, range.endMonth);
+  const months = monthsInProfitRange
+    .sort((a, b) => a.localeCompare(b));
+
+  return months.map((month) => {
+    const revenue = Number(revenueByMonth.get(month) || 0);
+    const totalCost = Number(costByMonth.get(month) || 0);
+    return {
+      label: month,
+      date: monthDate(month),
+      revenue,
+      totalCost,
+      profit: revenue - totalCost,
+    };
+  });
+};
+
+const renderProfitTab = (orders) => {
+  const rows = getProfitRows(orders);
+  const totals = rows.reduce((sum, row) => ({
+    revenue: sum.revenue + row.revenue,
+    totalCost: sum.totalCost + row.totalCost,
+    profit: sum.profit + row.profit,
+  }), { revenue: 0, totalCost: 0, profit: 0 });
+  const best = [...rows].sort((a, b) => b.profit - a.profit)[0];
+  const worst = [...rows].sort((a, b) => a.profit - b.profit)[0];
+  return `
+    ${metricCardsHtml([
+      { label: 'Tổng lợi nhuận', value: formatPrice(totals.profit), note: 'Doanh thu trừ chi phí' },
+      { label: 'Tổng doanh thu', value: formatPrice(totals.revenue) },
+      { label: 'Tổng chi phí', value: formatPrice(totals.totalCost) },
+      { label: 'Tháng tốt nhất', value: escapeHtml(best?.label || '—'), note: best ? formatPrice(best.profit) : 'Chưa có dữ liệu' },
+      { label: 'Tháng thấp nhất', value: escapeHtml(worst?.label || '—'), note: worst ? formatPrice(worst.profit) : 'Chưa có dữ liệu' },
+    ])}
+    <div class="owner-analytics-grid owner-revenue-grid">
+      <section class="staff-panel"><div class="staff-panel-header"><div class="staff-panel-title">Lợi nhuận theo tháng</div></div><div class="staff-panel-body">${lineChartHtml(rows, 'profit', { showLegend: false, showAxes: true, mode: 'month' })}</div></section>
+      <section class="staff-panel"><div class="staff-panel-header"><div class="staff-panel-title">Chi phí theo tháng</div></div><div class="staff-panel-body">${barChartHtml(rows, { valueKey: 'totalCost', labelKey: 'label', money: true })}</div></section>
+      <section class="staff-panel owner-revenue-summary-panel"><div class="staff-panel-header"><div class="staff-panel-title">Bảng lợi nhuận</div></div><div class="staff-panel-body owner-sheet-body"><div class="owner-table-wrap"><table class="owner-table owner-spreadsheet"><thead><tr><th>Tháng</th><th>Doanh thu</th><th>Chi phí</th><th>Lợi nhuận</th></tr></thead><tbody>${rows.slice().reverse().map((row) => `<tr><td>${escapeHtml(row.label)}</td><td>${formatPrice(row.revenue)}</td><td>${formatPrice(row.totalCost)}</td><td>${formatPrice(row.profit)}</td></tr>`).join('') || `<tr><td colspan="4"><div class="empty-state"><h3>Chưa có dữ liệu</h3></div></td></tr>`}</tbody></table></div></div></section>
+    </div>
+  `;
+};
+
 export const renderReportsPage = () => {
   resetOwnerCharts();
-  const orders = getAnalyticsOrders();
+  const orders = reportTab === 'profit' ? getAllAnalyticsOrders() : getAnalyticsOrders();
   const revenueOrders = getRevenueRecords(orders);
   const summary = getAnalyticsSummary(revenueOrders);
   return `
     <div class="owner-page owner-analytics-page">
       <div class="owner-toolbar owner-toolbar--filter-only">
-        ${timeFilterHtml({ includeAll: true })}
+        ${timeFilterHtml({ includeAll: true, monthly: reportTab === 'profit' })}
       </div>
-      ${rangeCaptionHtml()}
+      ${rangeCaptionHtml({ monthly: reportTab === 'profit' })}
       <div class="owner-report-content${reportTab === 'orders' ? ' owner-report-content--orders' : ''}">
-        ${reportTab === 'items' ? renderMenuStatsTab(revenueOrders, summary) : reportTab === 'orders' ? renderOrdersTab(orders) : renderRevenueTab(revenueOrders, summary)}
+        ${reportTab === 'items' ? renderMenuStatsTab(revenueOrders, summary) : reportTab === 'orders' ? renderOrdersTab(orders) : reportTab === 'profit' ? renderProfitTab(revenueOrders, summary) : renderRevenueTab(revenueOrders, summary)}
       </div>
     </div>
   `;
@@ -962,6 +1105,7 @@ export const renderReportsPage = () => {
 
 const reportTabsHtml = () => `
   <button class="${reportTab === 'revenue' ? 'active' : ''}" data-report-tab="revenue" type="button">Doanh thu</button>
+  <button class="${reportTab === 'profit' ? 'active' : ''}" data-report-tab="profit" type="button">Lợi nhuận</button>
   <button class="${reportTab === 'items' ? 'active' : ''}" data-report-tab="items" type="button">Lượt bán món</button>
   <button class="${reportTab === 'orders' ? 'active' : ''}" data-report-tab="orders" type="button">Đơn hàng</button>
 `;
@@ -973,6 +1117,7 @@ const syncReportTabsNav = () => {
 
 const bindAnalyticsFilters = ({ bindRange = true } = {}) => {
   bindSegmentedDateTimeInputs(document.querySelector('.owner-analytics-filter') || document);
+  bindSegmentedMonthInputs(document.querySelector('.owner-analytics-filter') || document);
   mountOwnerCharts();
   if (analyticsFirstPaint) {
     analyticsFirstPaint = false;
@@ -986,7 +1131,11 @@ const bindAnalyticsFilters = ({ bindRange = true } = {}) => {
   }
   document.querySelectorAll('[data-range]')?.forEach((btn) => {
     btn.addEventListener('click', () => {
-      analyticsRange = btn.dataset.range;
+      if (reportTab === 'profit') {
+        profitRange = btn.dataset.range;
+      } else {
+        analyticsRange = btn.dataset.range;
+      }
       analyticsCustomMenuOpen = false;
       resetReportSheetPages();
       orderSheetPage = 1;
@@ -998,6 +1147,22 @@ const bindAnalyticsFilters = ({ bindRange = true } = {}) => {
     rerenderOwnerPage();
   });
   document.getElementById('analytics-apply-custom')?.addEventListener('click', () => {
+    if (reportTab === 'profit') {
+      const start = getMonthValue('profit-start');
+      const end = getMonthValue('profit-end');
+      if (!start || !end) {
+        toast.error('Vui lòng chọn đủ tháng bắt đầu và tháng kết thúc.');
+        return;
+      }
+      profitRange = 'custom';
+      profitCustomStart = start;
+      profitCustomEnd = end;
+      analyticsCustomMenuOpen = false;
+      resetReportSheetPages();
+      orderSheetPage = 1;
+      rerenderOwnerPage();
+      return;
+    }
     const start = getDateTimeValue('analytics-start');
     const end = getDateTimeValue('analytics-end');
     if (!start || !end) {
