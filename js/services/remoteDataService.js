@@ -48,23 +48,31 @@ const mapStaffActor = (row = {}) => ({
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const resolveStaffActorAuthId = async (client, actor = {}) => {
-  const lookupId = (actor.authId || actor.id || '').toString().trim();
+  const rawActorPublicCode = (actor.id || '').toString().trim();
+  const actorPublicCode = (!UUID_RE.test(rawActorPublicCode) && rawActorPublicCode) || '';
+  const lookupId = (actor.authId || rawActorPublicCode).toString().trim();
   if (!lookupId) throw new Error('Không tìm thấy tài khoản nhân viên.');
-  const query = client
-    .from('profile_details')
-    .select('id, public_code, role')
-    .in('role', ['staff', 'shipper'])
-    .limit(1);
+  const staffActorProfileQuery = () =>
+    client
+      .from('profile_details')
+      .select('id, public_code, role')
+      .in('role', ['staff', 'shipper'])
+      .limit(1);
+
+  if (actorPublicCode) {
+    const { data: publicData, error: publicError } = await staffActorProfileQuery()
+      .eq('public_code', actorPublicCode)
+      .maybeSingle();
+    if (publicError) throw publicError;
+    if (publicData?.id) return publicData.id;
+  }
   
   let data, error;
   if (UUID_RE.test(lookupId)) {
-    ({ data, error } = await query.eq('id', lookupId).maybeSingle());
+    ({ data, error } = await staffActorProfileQuery().eq('id', lookupId).maybeSingle());
     if (error) throw error;
     if (!data?.id && actor.id && actor.id !== lookupId) {
-      const fallbackQuery = client
-        .from('profile_details')
-        .select('id, public_code, role')
-        .in('role', ['staff', 'shipper'])
+      const fallbackQuery = staffActorProfileQuery()
         .eq('public_code', actor.id.toString().trim())
         .limit(1);
       const { data: fallbackData, error: fallbackError } = await fallbackQuery.maybeSingle();
@@ -72,7 +80,7 @@ const resolveStaffActorAuthId = async (client, actor = {}) => {
       if (fallbackData?.id) return fallbackData.id;
     }
   } else {
-    ({ data, error } = await query.eq('public_code', lookupId).maybeSingle());
+    ({ data, error } = await staffActorProfileQuery().eq('public_code', lookupId).maybeSingle());
     if (error) throw error;
   }
 
@@ -81,23 +89,31 @@ const resolveStaffActorAuthId = async (client, actor = {}) => {
 };
 
 const resolveCustomerAuthId = async (client, user = {}) => {
-  const lookupId = (user.authId || user.id || '').toString().trim();
+  const rawPublicCode = (user.id || '').toString().trim();
+  const publicCode = (!UUID_RE.test(rawPublicCode) && rawPublicCode) || '';
+  const lookupId = (user.authId || rawPublicCode).toString().trim();
   if (!lookupId) throw new Error('Không tìm thấy tài khoản khách hàng.');
-  const query = client
-    .from('profile_details')
-    .select('id, public_code, role')
-    .eq('role', 'customer')
-    .limit(1);
+  const customerProfileQuery = () =>
+    client
+      .from('profile_details')
+      .select('id, public_code, role')
+      .eq('role', 'customer')
+      .limit(1);
+
+  if (publicCode) {
+    const { data: publicData, error: publicError } = await customerProfileQuery()
+      .eq('public_code', publicCode)
+      .maybeSingle();
+    if (publicError) throw publicError;
+    if (publicData?.id) return publicData.id;
+  }
 
   let data, error;
   if (UUID_RE.test(lookupId)) {
-    ({ data, error } = await query.eq('id', lookupId).maybeSingle());
+    ({ data, error } = await customerProfileQuery().eq('id', lookupId).maybeSingle());
     if (error) throw error;
     if (!data?.id && user.id && user.id !== lookupId) {
-      const fallbackQuery = client
-        .from('profile_details')
-        .select('id, public_code, role')
-        .eq('role', 'customer')
+      const fallbackQuery = customerProfileQuery()
         .eq('public_code', user.id.toString().trim())
         .limit(1);
       const { data: fallbackData, error: fallbackError } = await fallbackQuery.maybeSingle();
@@ -105,7 +121,7 @@ const resolveCustomerAuthId = async (client, user = {}) => {
       if (fallbackData?.id) return fallbackData.id;
     }
   } else {
-    ({ data, error } = await query.eq('public_code', lookupId).maybeSingle());
+    ({ data, error } = await customerProfileQuery().eq('public_code', lookupId).maybeSingle());
     if (error) throw error;
   }
 
