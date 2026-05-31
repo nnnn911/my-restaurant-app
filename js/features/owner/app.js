@@ -6,6 +6,7 @@ import { invalidateOwnerData, setOwnerRenderPage } from './common.js';
 import { renderMenuPage, bindMenuPage } from './menu.js';
 import { renderVoucherPage, bindVoucherPage } from './vouchers.js';
 import { renderCustomersPage, bindCustomersPage } from './customers.js';
+import { renderStaffPage, bindStaffPage } from './staff.js';
 import {
   bindDashboardPage,
   bindReportsPage,
@@ -91,6 +92,7 @@ const getPageHtml = () => {
   if (PAGE === 'menu' || PAGE === 'inventory') return renderMenuPage();
   if (PAGE === 'vouchers') return renderVoucherPage();
   if (PAGE === 'customers') return renderCustomersPage();
+  if (PAGE === 'staff') return renderStaffPage();
   return renderMenuPage();
 };
 
@@ -100,6 +102,7 @@ const bindPage = () => {
   else if (PAGE === 'menu' || PAGE === 'inventory') bindMenuPage();
   else if (PAGE === 'vouchers') bindVoucherPage();
   else if (PAGE === 'customers') bindCustomersPage();
+  else if (PAGE === 'staff') bindStaffPage();
   else bindMenuPage();
 };
 

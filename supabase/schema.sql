@@ -35,12 +35,100 @@ create table if not exists public.profiles (
   id uuid primary key references auth.users(id) on delete cascade,
   public_code text unique,
   role public.app_role not null default 'customer',
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.customer_profiles (
+  id uuid primary key references public.profiles(id) on delete cascade,
   name text not null,
   phone text unique,
   points integer not null default 0 check (points >= 0),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+create table if not exists public.staff_profiles (
+  id uuid primary key references public.profiles(id) on delete cascade,
+  name text not null,
+  phone text unique,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.owner_profiles (
+  id uuid primary key references public.profiles(id) on delete cascade,
+  name text not null,
+  phone text unique,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.shipper_profiles (
+  id uuid primary key references public.profiles(id) on delete cascade,
+  name text not null,
+  phone text unique,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+do $$
+begin
+  if exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'profiles'
+      and column_name = 'name'
+  ) then
+    insert into public.customer_profiles (id, name, phone, points, created_at, updated_at)
+    select id, name, phone, points, created_at, updated_at
+    from public.profiles
+    where role = 'customer'
+    on conflict (id) do nothing;
+
+    insert into public.staff_profiles (id, name, phone, created_at, updated_at)
+    select id, name, phone, created_at, updated_at
+    from public.profiles
+    where role = 'staff'
+    on conflict (id) do nothing;
+
+    insert into public.owner_profiles (id, name, phone, created_at, updated_at)
+    select id, name, phone, created_at, updated_at
+    from public.profiles
+    where role = 'owner'
+    on conflict (id) do nothing;
+
+    insert into public.shipper_profiles (id, name, phone, created_at, updated_at)
+    select id, name, phone, created_at, updated_at
+    from public.profiles
+    where role = 'shipper'
+    on conflict (id) do nothing;
+  end if;
+end $$;
+
+alter table public.profiles
+  drop column if exists name,
+  drop column if exists phone,
+  drop column if exists points;
+
+create or replace view public.profile_details
+with (security_invoker = true)
+as
+select
+  p.id,
+  p.public_code,
+  p.role,
+  coalesce(cp.name, sp.name, op.name, shp.name, '') as name,
+  coalesce(cp.phone, sp.phone, op.phone, shp.phone) as phone,
+  coalesce(cp.points, 0) as points,
+  p.created_at,
+  p.updated_at
+from public.profiles p
+left join public.customer_profiles cp on cp.id = p.id and p.role = 'customer'
+left join public.staff_profiles sp on sp.id = p.id and p.role = 'staff'
+left join public.owner_profiles op on op.id = p.id and p.role = 'owner'
+left join public.shipper_profiles shp on shp.id = p.id and p.role = 'shipper';
 
 create table if not exists public.menu_items (
   id text primary key,
@@ -211,6 +299,22 @@ drop trigger if exists profiles_touch_updated_at on public.profiles;
 create trigger profiles_touch_updated_at before update on public.profiles
 for each row execute function public.touch_updated_at();
 
+drop trigger if exists customer_profiles_touch_updated_at on public.customer_profiles;
+create trigger customer_profiles_touch_updated_at before update on public.customer_profiles
+for each row execute function public.touch_updated_at();
+
+drop trigger if exists staff_profiles_touch_updated_at on public.staff_profiles;
+create trigger staff_profiles_touch_updated_at before update on public.staff_profiles
+for each row execute function public.touch_updated_at();
+
+drop trigger if exists owner_profiles_touch_updated_at on public.owner_profiles;
+create trigger owner_profiles_touch_updated_at before update on public.owner_profiles
+for each row execute function public.touch_updated_at();
+
+drop trigger if exists shipper_profiles_touch_updated_at on public.shipper_profiles;
+create trigger shipper_profiles_touch_updated_at before update on public.shipper_profiles
+for each row execute function public.touch_updated_at();
+
 drop trigger if exists menu_items_touch_updated_at on public.menu_items;
 create trigger menu_items_touch_updated_at before update on public.menu_items
 for each row execute function public.touch_updated_at();
@@ -331,7 +435,8 @@ security definer
 set search_path = public
 as $$
 declare
-  profile_row public.profiles%rowtype;
+  profile_id uuid;
+  customer_row public.customer_profiles%rowtype;
   required_points integer;
   voucher_code text;
   remaining_points integer;
@@ -346,17 +451,27 @@ begin
 
   required_points := voucher_amount / 1000;
 
-  select *
-  into profile_row
+  select id
+  into profile_id
   from public.profiles
-  where id = auth.uid() and role = 'customer'
+  where id = auth.uid()
+    and role = 'customer';
+
+  if not found then
+    raise exception 'Không tìm thấy tài khoản khách hàng.';
+  end if;
+
+  select *
+  into customer_row
+  from public.customer_profiles
+  where id = profile_id
   for update;
 
   if not found then
     raise exception 'Không tìm thấy tài khoản khách hàng.';
   end if;
 
-  if profile_row.points < required_points then
+  if customer_row.points < required_points then
     raise exception 'Bạn không đủ điểm để đổi voucher.';
   end if;
 
@@ -376,16 +491,16 @@ begin
     'Voucher đổi từ ' || required_points::text || ' điểm thưởng',
     true,
     'rewards',
-    profile_row.id
+    customer_row.id
   );
 
   insert into public.user_vouchers (user_id, voucher_code)
-  values (profile_row.id, voucher_code);
+  values (customer_row.id, voucher_code);
 
-  update public.profiles
+  update public.customer_profiles
   set points = points - required_points
-  where id = profile_row.id
-  returning public.profiles.points into remaining_points;
+  where id = customer_row.id
+  returning public.customer_profiles.points into remaining_points;
 
   return query
   select
@@ -415,9 +530,13 @@ as $$
 declare
   desired_role public.app_role;
   desired_code text;
+  desired_name text;
+  desired_phone text;
 begin
   desired_role := coalesce((new.raw_user_meta_data ->> 'role')::public.app_role, 'customer'::public.app_role);
   desired_code := new.raw_user_meta_data ->> 'public_code';
+  desired_name := coalesce(nullif(new.raw_user_meta_data ->> 'name', ''), split_part(new.email, '@', 1), 'Khách hàng');
+  desired_phone := nullif(new.raw_user_meta_data ->> 'phone', '');
 
   if desired_code is null or desired_code = '' then
     if desired_role = 'staff' then
@@ -431,15 +550,31 @@ begin
     end if;
   end if;
 
-  insert into public.profiles (id, public_code, role, name, phone)
+  insert into public.profiles (id, public_code, role)
   values (
     new.id,
     desired_code,
-    desired_role,
-    coalesce(nullif(new.raw_user_meta_data ->> 'name', ''), split_part(new.email, '@', 1), 'Khách hàng'),
-    nullif(new.raw_user_meta_data ->> 'phone', '')
+    desired_role
   )
   on conflict (id) do nothing;
+
+  if desired_role = 'staff' then
+    insert into public.staff_profiles (id, name, phone)
+    values (new.id, desired_name, desired_phone)
+    on conflict (id) do nothing;
+  elsif desired_role = 'owner' then
+    insert into public.owner_profiles (id, name, phone)
+    values (new.id, desired_name, desired_phone)
+    on conflict (id) do nothing;
+  elsif desired_role = 'shipper' then
+    insert into public.shipper_profiles (id, name, phone)
+    values (new.id, desired_name, desired_phone)
+    on conflict (id) do nothing;
+  else
+    insert into public.customer_profiles (id, name, phone, points)
+    values (new.id, desired_name, desired_phone, 0)
+    on conflict (id) do nothing;
+  end if;
 
   return new;
 end;
@@ -449,6 +584,380 @@ drop trigger if exists on_auth_user_created on auth.users;
 create trigger on_auth_user_created
 after insert on auth.users
 for each row execute function public.handle_new_auth_user();
+
+create or replace function public.normalize_phone(raw_phone text)
+returns text
+language sql
+immutable
+as $$
+  select regexp_replace(coalesce(raw_phone, ''), '\D', '', 'g')
+$$;
+
+create or replace function public.phone_auth_email(raw_phone text)
+returns text
+language sql
+immutable
+as $$
+  select public.normalize_phone(raw_phone) || '@phone.dongque.app'
+$$;
+
+create or replace function public.actor_profile_json(actor_id uuid)
+returns jsonb
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select jsonb_build_object(
+    'id', p.public_code,
+    'authId', p.id,
+    'name', d.name,
+    'phone', d.phone,
+    'role', p.role,
+    'createdAt', p.created_at
+  )
+  from public.profiles p
+  join public.profile_details d on d.id = p.id
+  where p.id = actor_id
+$$;
+
+create or replace function public.owner_create_actor_user(payload jsonb)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, auth
+as $$
+declare
+  actor_role public.app_role;
+  actor_id uuid := gen_random_uuid();
+  actor_name text;
+  actor_phone text;
+  actor_password text;
+  actor_email text;
+  actor_code text;
+begin
+  if not public.is_owner() then
+    raise exception 'Only owner can create staff users';
+  end if;
+
+  actor_role := coalesce(nullif(payload ->> 'role', '')::public.app_role, 'staff'::public.app_role);
+  if actor_role not in ('staff', 'shipper') then
+    raise exception 'Role must be staff or shipper';
+  end if;
+
+  actor_name := coalesce(nullif(payload ->> 'name', ''), 'Nhân viên');
+  actor_phone := public.normalize_phone(payload ->> 'phone');
+  actor_password := coalesce(nullif(payload ->> 'password', ''), '');
+  if actor_phone = '' then
+    raise exception 'Số điện thoại không hợp lệ.';
+  end if;
+  if length(actor_password) < 6 then
+    raise exception 'Mật khẩu phải có ít nhất 6 ký tự.';
+  end if;
+
+  actor_email := public.phone_auth_email(actor_phone);
+  if exists (select 1 from auth.users where email = actor_email) then
+    raise exception 'Số điện thoại đã được sử dụng.';
+  end if;
+
+  actor_code := case
+    when actor_role = 'shipper' then public.next_public_code('SP', 'shipper_code', 5)
+    else public.next_public_code('NV', 'staff_code', 5)
+  end;
+
+  insert into auth.users (
+    instance_id,
+    id,
+    aud,
+    role,
+    email,
+    encrypted_password,
+    email_confirmed_at,
+    raw_app_meta_data,
+    raw_user_meta_data,
+    created_at,
+    updated_at,
+    confirmation_token,
+    email_change,
+    email_change_token_new,
+    recovery_token
+  )
+  values (
+    '00000000-0000-0000-0000-000000000000',
+    actor_id,
+    'authenticated',
+    'authenticated',
+    actor_email,
+    crypt(actor_password, gen_salt('bf')),
+    now(),
+    jsonb_build_object('provider', 'email', 'providers', jsonb_build_array('email')),
+    jsonb_build_object('name', actor_name, 'phone', actor_phone, 'role', actor_role, 'public_code', actor_code),
+    now(),
+    now(),
+    '',
+    '',
+    '',
+    ''
+  );
+
+  insert into auth.identities (
+    id,
+    user_id,
+    provider_id,
+    identity_data,
+    provider,
+    last_sign_in_at,
+    created_at,
+    updated_at
+  )
+  values (
+    gen_random_uuid(),
+    actor_id,
+    actor_id::text,
+    jsonb_build_object('sub', actor_id::text, 'email', actor_email, 'email_verified', true, 'phone', actor_phone),
+    'email',
+    now(),
+    now(),
+    now()
+  );
+
+  insert into public.profiles (id, public_code, role)
+  values (actor_id, actor_code, actor_role)
+  on conflict (id) do update set
+    public_code = excluded.public_code,
+    role = excluded.role;
+
+  if actor_role = 'shipper' then
+    insert into public.shipper_profiles (id, name, phone)
+    values (actor_id, actor_name, actor_phone)
+    on conflict (id) do update set name = excluded.name, phone = excluded.phone;
+  else
+    insert into public.staff_profiles (id, name, phone)
+    values (actor_id, actor_name, actor_phone)
+    on conflict (id) do update set name = excluded.name, phone = excluded.phone;
+  end if;
+
+  return public.actor_profile_json(actor_id);
+end;
+$$;
+
+create or replace function public.owner_create_customer_user(payload jsonb)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, auth
+as $$
+declare
+  customer_id uuid := gen_random_uuid();
+  customer_name text;
+  customer_phone text;
+  customer_password text;
+  customer_email text;
+  customer_code text;
+  customer_points integer;
+begin
+  if not public.is_owner() then
+    raise exception 'Only owner can create customers';
+  end if;
+
+  customer_name := coalesce(nullif(payload ->> 'name', ''), 'Khách hàng');
+  customer_phone := public.normalize_phone(payload ->> 'phone');
+  customer_password := coalesce(nullif(payload ->> 'password', ''), '');
+  customer_points := greatest(coalesce((payload ->> 'points')::integer, 0), 0);
+
+  if customer_phone = '' then
+    raise exception 'Số điện thoại không hợp lệ.';
+  end if;
+  if length(customer_password) < 6 then
+    raise exception 'Mật khẩu phải có ít nhất 6 ký tự.';
+  end if;
+
+  customer_email := public.phone_auth_email(customer_phone);
+  if exists (select 1 from auth.users where email = customer_email) then
+    raise exception 'Số điện thoại đã được sử dụng.';
+  end if;
+
+  customer_code := public.next_public_code('KH', 'customer_code', 5);
+
+  insert into auth.users (
+    instance_id,
+    id,
+    aud,
+    role,
+    email,
+    encrypted_password,
+    email_confirmed_at,
+    raw_app_meta_data,
+    raw_user_meta_data,
+    created_at,
+    updated_at,
+    confirmation_token,
+    email_change,
+    email_change_token_new,
+    recovery_token
+  )
+  values (
+    '00000000-0000-0000-0000-000000000000',
+    customer_id,
+    'authenticated',
+    'authenticated',
+    customer_email,
+    crypt(customer_password, gen_salt('bf')),
+    now(),
+    jsonb_build_object('provider', 'email', 'providers', jsonb_build_array('email')),
+    jsonb_build_object('name', customer_name, 'phone', customer_phone, 'role', 'customer', 'public_code', customer_code),
+    now(),
+    now(),
+    '',
+    '',
+    '',
+    ''
+  );
+
+  insert into auth.identities (
+    id,
+    user_id,
+    provider_id,
+    identity_data,
+    provider,
+    last_sign_in_at,
+    created_at,
+    updated_at
+  )
+  values (
+    gen_random_uuid(),
+    customer_id,
+    customer_id::text,
+    jsonb_build_object('sub', customer_id::text, 'email', customer_email, 'email_verified', true, 'phone', customer_phone),
+    'email',
+    now(),
+    now(),
+    now()
+  );
+
+  insert into public.profiles (id, public_code, role)
+  values (customer_id, customer_code, 'customer')
+  on conflict (id) do update set
+    public_code = excluded.public_code,
+    role = excluded.role;
+
+  insert into public.customer_profiles (id, name, phone, points)
+  values (customer_id, customer_name, customer_phone, customer_points)
+  on conflict (id) do update set
+    name = excluded.name,
+    phone = excluded.phone,
+    points = excluded.points;
+
+  return public.actor_profile_json(customer_id);
+end;
+$$;
+
+create or replace function public.owner_update_actor_user(actor_id uuid, payload jsonb)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, auth
+as $$
+declare
+  current_role public.app_role;
+  next_role public.app_role;
+  actor_name text;
+  actor_phone text;
+  actor_password text;
+  actor_email text;
+  next_code text;
+begin
+  if not public.is_owner() then
+    raise exception 'Only owner can update staff users';
+  end if;
+
+  select role into current_role from public.profiles where id = actor_id for update;
+  if not found or current_role not in ('staff', 'shipper') then
+    raise exception 'Không tìm thấy nhân viên.';
+  end if;
+
+  next_role := coalesce(nullif(payload ->> 'role', '')::public.app_role, current_role);
+  if next_role not in ('staff', 'shipper') then
+    raise exception 'Role must be staff or shipper';
+  end if;
+
+  actor_name := coalesce(nullif(payload ->> 'name', ''), 'Nhân viên');
+  actor_phone := public.normalize_phone(payload ->> 'phone');
+  actor_password := coalesce(nullif(payload ->> 'password', ''), '');
+  if actor_phone = '' then
+    raise exception 'Số điện thoại không hợp lệ.';
+  end if;
+  actor_email := public.phone_auth_email(actor_phone);
+
+  if exists (select 1 from auth.users where email = actor_email and id <> actor_id) then
+    raise exception 'Số điện thoại đã được sử dụng.';
+  end if;
+
+  if next_role <> current_role then
+    next_code := case
+      when next_role = 'shipper' then public.next_public_code('SP', 'shipper_code', 5)
+      else public.next_public_code('NV', 'staff_code', 5)
+    end;
+    update public.profiles set role = next_role, public_code = next_code where id = actor_id;
+    delete from public.staff_profiles where id = actor_id;
+    delete from public.shipper_profiles where id = actor_id;
+  end if;
+
+  if next_role = 'shipper' then
+    insert into public.shipper_profiles (id, name, phone)
+    values (actor_id, actor_name, actor_phone)
+    on conflict (id) do update set name = excluded.name, phone = excluded.phone;
+  else
+    insert into public.staff_profiles (id, name, phone)
+    values (actor_id, actor_name, actor_phone)
+    on conflict (id) do update set name = excluded.name, phone = excluded.phone;
+  end if;
+
+  update auth.users
+  set
+    email = actor_email,
+    raw_user_meta_data = jsonb_build_object('name', actor_name, 'phone', actor_phone, 'role', next_role),
+    encrypted_password = case
+      when actor_password <> '' then crypt(actor_password, gen_salt('bf'))
+      else encrypted_password
+    end,
+    updated_at = now()
+  where id = actor_id;
+
+  update auth.identities
+  set
+    identity_data = jsonb_build_object('sub', actor_id::text, 'email', actor_email, 'email_verified', true, 'phone', actor_phone),
+    updated_at = now()
+  where user_id = actor_id and provider = 'email';
+
+  return public.actor_profile_json(actor_id);
+end;
+$$;
+
+create or replace function public.owner_delete_actor_user(actor_id uuid)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, auth
+as $$
+declare
+  actor_role public.app_role;
+  actor_row jsonb;
+begin
+  if not public.is_owner() then
+    raise exception 'Only owner can delete staff users';
+  end if;
+
+  select role into actor_role from public.profiles where id = actor_id;
+  if not found or actor_role not in ('staff', 'shipper') then
+    raise exception 'Không tìm thấy nhân viên.';
+  end if;
+
+  actor_row := public.actor_profile_json(actor_id);
+  delete from auth.users where id = actor_id;
+  return actor_row;
+end;
+$$;
 
 create or replace function public.calculate_order_points(total_amount integer)
 returns integer
@@ -759,7 +1268,7 @@ begin
   if next_status = 'completed' and not target.points_awarded and target.user_id is not null then
     awarded_points := public.calculate_order_points(target.total);
     if awarded_points > 0 then
-      update public.profiles
+      update public.customer_profiles
       set points = points + awarded_points
       where id = target.user_id;
 
@@ -982,7 +1491,7 @@ begin
     and target.user_id is not null then
     awarded_points := public.calculate_order_points(target.total);
     if awarded_points > 0 then
-      update public.profiles
+      update public.customer_profiles
       set points = points + awarded_points
       where id = target.user_id;
 
@@ -1008,6 +1517,10 @@ end;
 $$;
 
 create index if not exists idx_profiles_role on public.profiles(role);
+create index if not exists idx_customer_profiles_phone on public.customer_profiles(phone);
+create index if not exists idx_staff_profiles_phone on public.staff_profiles(phone);
+create index if not exists idx_owner_profiles_phone on public.owner_profiles(phone);
+create index if not exists idx_shipper_profiles_phone on public.shipper_profiles(phone);
 create index if not exists idx_menu_items_category_status on public.menu_items(category, status);
 create index if not exists idx_orders_user_created_at on public.orders(user_id, created_at desc);
 create index if not exists idx_orders_status_created_at on public.orders(status, created_at desc);
@@ -1020,6 +1533,10 @@ create index if not exists idx_reservations_status_needed_date on public.reserva
 create index if not exists idx_cart_items_cart_id on public.cart_items(cart_id);
 
 alter table public.profiles enable row level security;
+alter table public.customer_profiles enable row level security;
+alter table public.staff_profiles enable row level security;
+alter table public.owner_profiles enable row level security;
+alter table public.shipper_profiles enable row level security;
 alter table public.menu_items enable row level security;
 alter table public.vouchers enable row level security;
 alter table public.user_vouchers enable row level security;
@@ -1056,6 +1573,106 @@ create policy "profiles_delete_owner"
 on public.profiles for delete
 to authenticated
 using (public.is_owner() and role = 'customer');
+
+drop policy if exists "customer_profiles_select_own_or_staff" on public.customer_profiles;
+create policy "customer_profiles_select_own_or_staff"
+on public.customer_profiles for select
+to authenticated
+using ((select auth.uid()) = id or public.is_staff_or_owner());
+
+drop policy if exists "customer_profiles_insert_own_or_owner" on public.customer_profiles;
+create policy "customer_profiles_insert_own_or_owner"
+on public.customer_profiles for insert
+to authenticated
+with check ((select auth.uid()) = id or public.is_owner());
+
+drop policy if exists "customer_profiles_update_own_or_owner" on public.customer_profiles;
+create policy "customer_profiles_update_own_or_owner"
+on public.customer_profiles for update
+to authenticated
+using ((select auth.uid()) = id or public.is_owner())
+with check ((select auth.uid()) = id or public.is_owner());
+
+drop policy if exists "customer_profiles_delete_owner" on public.customer_profiles;
+create policy "customer_profiles_delete_owner"
+on public.customer_profiles for delete
+to authenticated
+using (public.is_owner());
+
+drop policy if exists "staff_profiles_select_own_or_staff" on public.staff_profiles;
+create policy "staff_profiles_select_own_or_staff"
+on public.staff_profiles for select
+to authenticated
+using ((select auth.uid()) = id or public.is_staff_or_owner());
+
+drop policy if exists "staff_profiles_insert_own_or_owner" on public.staff_profiles;
+create policy "staff_profiles_insert_own_or_owner"
+on public.staff_profiles for insert
+to authenticated
+with check ((select auth.uid()) = id or public.is_owner());
+
+drop policy if exists "staff_profiles_update_own_or_owner" on public.staff_profiles;
+create policy "staff_profiles_update_own_or_owner"
+on public.staff_profiles for update
+to authenticated
+using ((select auth.uid()) = id or public.is_owner())
+with check ((select auth.uid()) = id or public.is_owner());
+
+drop policy if exists "staff_profiles_delete_owner" on public.staff_profiles;
+create policy "staff_profiles_delete_owner"
+on public.staff_profiles for delete
+to authenticated
+using (public.is_owner());
+
+drop policy if exists "owner_profiles_select_own_or_staff" on public.owner_profiles;
+create policy "owner_profiles_select_own_or_staff"
+on public.owner_profiles for select
+to authenticated
+using ((select auth.uid()) = id or public.is_staff_or_owner());
+
+drop policy if exists "owner_profiles_insert_owner" on public.owner_profiles;
+create policy "owner_profiles_insert_owner"
+on public.owner_profiles for insert
+to authenticated
+with check (public.is_owner());
+
+drop policy if exists "owner_profiles_update_own_or_owner" on public.owner_profiles;
+create policy "owner_profiles_update_own_or_owner"
+on public.owner_profiles for update
+to authenticated
+using ((select auth.uid()) = id or public.is_owner())
+with check ((select auth.uid()) = id or public.is_owner());
+
+drop policy if exists "owner_profiles_delete_owner" on public.owner_profiles;
+create policy "owner_profiles_delete_owner"
+on public.owner_profiles for delete
+to authenticated
+using (public.is_owner());
+
+drop policy if exists "shipper_profiles_select_own_or_staff" on public.shipper_profiles;
+create policy "shipper_profiles_select_own_or_staff"
+on public.shipper_profiles for select
+to authenticated
+using ((select auth.uid()) = id or public.is_staff_or_owner());
+
+drop policy if exists "shipper_profiles_insert_own_or_owner" on public.shipper_profiles;
+create policy "shipper_profiles_insert_own_or_owner"
+on public.shipper_profiles for insert
+to authenticated
+with check ((select auth.uid()) = id or public.is_owner());
+
+drop policy if exists "shipper_profiles_update_own_or_owner" on public.shipper_profiles;
+create policy "shipper_profiles_update_own_or_owner"
+on public.shipper_profiles for update
+to authenticated
+using ((select auth.uid()) = id or public.is_owner())
+with check ((select auth.uid()) = id or public.is_owner());
+
+drop policy if exists "shipper_profiles_delete_owner" on public.shipper_profiles;
+create policy "shipper_profiles_delete_owner"
+on public.shipper_profiles for delete
+to authenticated
+using (public.is_owner());
 
 drop policy if exists "menu_public_read_visible" on public.menu_items;
 create policy "menu_public_read_visible"
@@ -1241,6 +1858,11 @@ grant select on table public.vouchers to anon, authenticated;
 
 -- Authenticated access (RLS policies still restrict rows/ops)
 grant select, insert, update, delete on table public.profiles to authenticated;
+grant select on table public.profile_details to authenticated;
+grant select, insert, update, delete on table public.customer_profiles to authenticated;
+grant select, insert, update, delete on table public.staff_profiles to authenticated;
+grant select, insert, update, delete on table public.owner_profiles to authenticated;
+grant select, insert, update, delete on table public.shipper_profiles to authenticated;
 grant select, insert, update, delete on table public.menu_items to authenticated;
 grant select, insert, update, delete on table public.vouchers to authenticated;
 grant select, insert, update, delete on table public.user_vouchers to authenticated;
@@ -1254,6 +1876,10 @@ grant select, insert, update, delete on table public.reservations to authenticat
 grant select, insert, update, delete on table public.app_sequences to authenticated;
 
 grant execute on function public.redeem_points_for_voucher(integer) to authenticated;
+grant execute on function public.owner_create_customer_user(jsonb) to authenticated;
+grant execute on function public.owner_create_actor_user(jsonb) to authenticated;
+grant execute on function public.owner_update_actor_user(uuid, jsonb) to authenticated;
+grant execute on function public.owner_delete_actor_user(uuid) to authenticated;
 
 -- Safe defaults for any sequences (if present)
 grant usage, select on all sequences in schema public to authenticated;

@@ -13,6 +13,7 @@ import {
   scheduleRenderPage,
   rerenderOwnerPage,
   formatDate,
+  createUserOnline,
   deleteUserOnline,
   updateUserPointsOnline,
   saveUsers,
@@ -57,6 +58,7 @@ export const renderCustomersPage = () => {
               <span class="search-icon" aria-hidden="true">${icon('search')}</span>
               <input type="search" id="owner-search" placeholder="Tìm khách hàng..." value="${escapeAttr(searchQuery)}">
             </div>
+            <button class="btn btn-primary" id="customer-create" type="button">${icon('addpeople')} Thêm khách hàng</button>
           </div>
         </div>
         <div class="staff-panel-body owner-sheet-body">
@@ -94,27 +96,37 @@ export const renderCustomersPage = () => {
 };
 
 const renderCustomerForm = (u) => {
-  if (!u) return `<div class="empty-state"><h3>Chọn khách hàng để xem</h3></div>`;
+  const isCreate = !u;
   return `
-    <form class="owner-form" id="customer-form" data-id="${escapeAttr(u.id)}">
+    <form class="owner-form" id="customer-form" data-id="${escapeAttr(u?.id || '')}">
       <div class="owner-form-grid">
         <div class="form-group">
           <label class="form-label" for="customer-name">Tên</label>
-          <input class="form-control" id="customer-name" value="${escapeAttr(u.name || '')}" required>
+          <input class="form-control" id="customer-name" value="${escapeAttr(u?.name || '')}" required>
         </div>
         <div class="form-group">
           <label class="form-label" for="customer-phone">Số điện thoại</label>
-          <input class="form-control" id="customer-phone" type="tel" value="${escapeAttr(u.phone || '')}" required>
+          <input class="form-control" id="customer-phone" type="tel" value="${escapeAttr(u?.phone || '')}" required>
         </div>
+        ${isCreate ? `
+          <div class="form-group">
+            <label class="form-label" for="customer-password">Mật khẩu</label>
+            <input class="form-control" id="customer-password" type="password" autocomplete="new-password" required>
+          </div>
+        ` : ''}
         <div class="form-group">
           <label class="form-label">Điểm</label>
           <div class="owner-points-box">
-            ${Number(u.points || 0)}
-            <button class="btn btn-outline btn-sm" id="customer-points-open" type="button">${icon('pen')} Cập nhật</button>
+            ${isCreate ? `
+              <input class="form-control" id="customer-initial-points" type="number" min="0" value="0">
+            ` : `
+              ${Number(u.points || 0)}
+              <button class="btn btn-outline btn-sm" id="customer-points-open" type="button">${icon('pen')} Cập nhật</button>
+            `}
           </div>
         </div>
       </div>
-      <div class="staff-profile-info" style="margin-top:0;margin-bottom:var(--space-5)">
+      ${isCreate ? '' : `<div class="staff-profile-info" style="margin-top:0;margin-bottom:var(--space-5)">
         <div>
           <div class="staff-profile-label">Mã khách hàng</div>
           <div class="staff-profile-value">${escapeHtml(u.id)}</div>
@@ -127,10 +139,10 @@ const renderCustomerForm = (u) => {
           <div class="staff-profile-label">Thời gian tham gia</div>
           <div class="staff-profile-value">${escapeHtml(getJoinedDuration(u.createdAt))}</div>
         </div>
-      </div>
+      </div>`}
       <div class="staff-actions">
-        <button class="btn btn-primary" type="submit">${icon('pen')} Lưu khách hàng</button>
-        <button class="btn btn-danger" id="customer-delete" type="button">${icon('trashcan')} Xoá</button>
+        <button class="btn btn-primary" id="customer-save" type="submit">${icon(isCreate ? 'addpeople' : 'pen')} ${isCreate ? 'Tạo khách hàng' : 'Lưu khách hàng'}</button>
+        ${isCreate ? '' : `<button class="btn btn-danger" id="customer-delete" type="button">${icon('trashcan')} Xoá</button>`}
       </div>
     </form>
   `;
@@ -220,19 +232,39 @@ const openCustomerPointsMenu = (user) => {
   requestAnimationFrame(() => drawer.classList.add('active'));
 };
 
-const bindCustomerForm = (closeDrawer) => {
+const bindCustomerForm = (closeDrawer, customer = null) => {
   document.getElementById('customer-points-open')?.addEventListener('click', () => openCustomerPointsMenu(getSelectedCustomer()));
-  document.getElementById('customer-form')?.addEventListener('submit', (e) => {
+  document.getElementById('customer-form')?.addEventListener('submit', async (e) => {
     e.preventDefault();
     const id = e.currentTarget.dataset.id;
     const users = getOwnerData().users;
-    const idx = users.findIndex((u) => u.id === id);
-    if (idx === -1) return;
     const phone = normalizePhone(document.getElementById('customer-phone').value);
     if (!phone || users.some((u) => u.id !== id && normalizePhone(u.phone) === phone)) {
       toast.error('Số điện thoại trống hoặc đã được sử dụng.');
       return;
     }
+    const saveBtn = document.getElementById('customer-save');
+    saveBtn.disabled = true;
+    if (!customer) {
+      try {
+        await createUserOnline({
+          name: document.getElementById('customer-name').value.trim(),
+          phone,
+          password: document.getElementById('customer-password')?.value || '',
+          points: Number(document.getElementById('customer-initial-points')?.value || 0),
+        });
+        invalidateOwnerData();
+        toast.success('Đã tạo khách hàng.');
+        closeDrawer?.();
+        rerenderOwnerPage();
+      } catch (error) {
+        toast.error(error?.message || 'Không thể tạo khách hàng.');
+        saveBtn.disabled = false;
+      }
+      return;
+    }
+    const idx = users.findIndex((u) => u.id === id);
+    if (idx === -1) return;
     users[idx] = {
       ...users[idx],
       name: document.getElementById('customer-name').value.trim(),
@@ -270,7 +302,17 @@ const openEditCustomerDrawer = (id) => {
     title: `${icon('user')} Chỉnh sửa khách hàng`,
     label: 'Chỉnh sửa khách hàng',
     bodyHtml: renderCustomerForm(customer),
-    onBind: (close) => bindCustomerForm(close),
+    onBind: (close) => bindCustomerForm(close, customer),
+  });
+};
+
+const openCreateCustomerDrawer = () => {
+  customerSelectedId = null;
+  openOwnerDrawer({
+    title: `${icon('addpeople')} Thêm khách hàng`,
+    label: 'Thêm khách hàng',
+    bodyHtml: renderCustomerForm(null),
+    onBind: (close) => bindCustomerForm(close, null),
   });
 };
 
@@ -285,6 +327,7 @@ export const bindCustomersPage = () => {
     customerSheetPage = 1;
     scheduleRenderPage();
   });
+  document.getElementById('customer-create')?.addEventListener('click', openCreateCustomerDrawer);
   document.querySelectorAll('[data-customer-sort]')?.forEach((btn) => {
     btn.addEventListener('click', () => {
       customerSort = nextSort(customerSort, btn.dataset.customerSort);

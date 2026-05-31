@@ -407,6 +407,33 @@ const setUsersToDb = (users) => {
 export const getUsers = () => getUsersFromDb();
 export const saveUsers = (users) => setUsersToDb(users);
 
+export const createUserOnline = async (user = {}) => {
+  const db = ensureDb();
+  const users = sanitizeUsers(db.users || []);
+  const phone = normalizePhone(user.phone);
+  if (!phone) throw new Error('Vui lòng nhập số điện thoại.');
+  if (users.some((item) => normalizePhone(item.phone) === phone)) {
+    throw new Error('Số điện thoại đã được sử dụng.');
+  }
+
+  let nextUser = sanitizeUser({
+    ...user,
+    id: getNextUserId(users),
+    phone,
+    role: 'customer',
+    points: Math.max(0, Number(user.points || 0)),
+    createdAt: nowIso(),
+  });
+
+  if (shouldUseRemote()) {
+    nextUser = sanitizeUser(await remoteDataService.createCustomer(nextUser), nextUser.id);
+  }
+
+  const nextUsers = sanitizeUsers([...users, nextUser]);
+  saveDb({ ...db, users: nextUsers });
+  return nextUsers.find((item) => item.id === nextUser.id) || nextUser;
+};
+
 export const deleteUserOnline = async (userId) => {
   const users = getUsers();
   if (shouldUseRemote()) await remoteDataService.deleteCustomer(userId);

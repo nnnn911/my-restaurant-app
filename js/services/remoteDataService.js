@@ -35,6 +35,15 @@ const mapProfile = (row = {}) => ({
   createdAt: row.created_at || '',
 });
 
+const mapStaffActor = (row = {}) => ({
+  id: row.public_code || row.id,
+  authId: row.authId || row.id,
+  name: row.name || '',
+  phone: row.phone || '',
+  role: row.role || 'staff',
+  createdAt: row.createdAt || row.created_at || '',
+});
+
 const mapOrderItem = (row = {}) => ({
   id: row.menu_item_id || row.id,
   name: row.name || '',
@@ -238,7 +247,7 @@ export const remoteDataService = {
     if (!userId) return null;
 
     const { data, error } = await client
-      .from('profiles')
+      .from('profile_details')
       .select('*')
       .eq('id', userId)
       .single();
@@ -249,7 +258,7 @@ export const remoteDataService = {
   async getUsers() {
     const client = requireSupabase();
     const { data, error } = await client
-      .from('profiles')
+      .from('profile_details')
       .select('*')
       .eq('role', 'customer')
       .order('created_at', { ascending: false });
@@ -257,21 +266,102 @@ export const remoteDataService = {
     return (data || []).map(mapProfile);
   },
 
+  async createCustomer(user = {}) {
+    const client = requireSupabase();
+    const { data, error } = await client.rpc('owner_create_customer_user', {
+      payload: {
+        name: user.name || '',
+        phone: user.phone || '',
+        password: user.password || '',
+        points: Number(user.points || 0),
+      },
+    });
+    if (error) throw error;
+    return mapProfile({
+      id: data?.authId || data?.id,
+      public_code: data?.id,
+      name: data?.name,
+      phone: data?.phone,
+      points: data?.points || user.points || 0,
+      role: 'customer',
+      created_at: data?.createdAt,
+    });
+  },
+
+  async getStaffActors() {
+    const client = requireSupabase();
+    const { data, error } = await client
+      .from('profile_details')
+      .select('*')
+      .in('role', ['staff', 'shipper'])
+      .order('created_at', { ascending: false });
+    if (error) throw error;
+    return (data || []).map(mapStaffActor);
+  },
+
+  async createStaffActor(actor = {}) {
+    const client = requireSupabase();
+    const { data, error } = await client.rpc('owner_create_actor_user', {
+      payload: {
+        name: actor.name || '',
+        phone: actor.phone || '',
+        role: actor.role || 'staff',
+        password: actor.password || '',
+      },
+    });
+    if (error) throw error;
+    return mapStaffActor(data);
+  },
+
+  async updateStaffActor(actor = {}) {
+    const client = requireSupabase();
+    if (!actor.authId) throw new Error('Không tìm thấy tài khoản nhân viên.');
+    const { data, error } = await client.rpc('owner_update_actor_user', {
+      actor_id: actor.authId,
+      payload: {
+        name: actor.name || '',
+        phone: actor.phone || '',
+        role: actor.role || 'staff',
+        password: actor.password || '',
+      },
+    });
+    if (error) throw error;
+    return mapStaffActor(data);
+  },
+
+  async deleteStaffActor(actor = {}) {
+    const client = requireSupabase();
+    if (!actor.authId) throw new Error('Không tìm thấy tài khoản nhân viên.');
+    const { data, error } = await client.rpc('owner_delete_actor_user', { actor_id: actor.authId });
+    if (error) throw error;
+    return mapStaffActor(data);
+  },
+
   async saveUsers(users = []) {
     const client = requireSupabase();
-    const rows = (Array.isArray(users) ? users : [])
-      .filter((user) => user.authId)
+    const validUsers = (Array.isArray(users) ? users : []).filter((user) => user.authId);
+    const profileRows = validUsers
       .map((user) => ({
         id: user.authId,
         public_code: user.id,
         role: user.role || 'customer',
+      }));
+    const customerRows = validUsers
+      .filter((user) => (user.role || 'customer') === 'customer')
+      .filter((user) => user.authId)
+      .map((user) => ({
+        id: user.authId,
         name: user.name || 'Khách hàng',
         phone: user.phone || null,
         points: Number(user.points || 0),
       }));
-    if (!rows.length) return;
-    const { error } = await client.from('profiles').upsert(rows, { onConflict: 'id' });
-    if (error) throw error;
+    if (!profileRows.length) return;
+    const { error: profileError } = await client.from('profiles').upsert(profileRows, { onConflict: 'id' });
+    if (profileError) throw profileError;
+    if (customerRows.length) {
+      const { error: customerError } = await client.from('customer_profiles').upsert(customerRows, { onConflict: 'id' });
+      if (customerError) throw customerError;
+    }
   },
 
   async updateCurrentProfile(updates = {}) {
@@ -282,28 +372,38 @@ export const remoteDataService = {
       name: updates.name || profile.name || 'Khách hàng',
       phone: updates.phone || profile.phone || null,
     };
-    const { data, error } = await client
-      .from('profiles')
-      .update(row)
-      .eq('id', profile.authId)
-      .select('*')
-      .single();
+    let error;
+    if (profile.role === 'staff') {
+      ({ error } = await client.from('staff_profiles').update(row).eq('id', profile.authId));
+    } else if (profile.role === 'owner') {
+      ({ error } = await client.from('owner_profiles').update(row).eq('id', profile.authId));
+    } else if (profile.role === 'shipper') {
+      ({ error } = await client.from('shipper_profiles').update(row).eq('id', profile.authId));
+    } else {
+      ({ error } = await client.from('customer_profiles').update(row).eq('id', profile.authId));
+    }
     if (error) throw error;
-    return mapProfile(data);
+    return this.getCurrentProfile();
   },
 
   async updateUserPoints(publicCode, points) {
     const client = requireSupabase();
     const nextPoints = Math.max(0, Number(points || 0));
-    const { data, error } = await client
-      .from('profiles')
-      .update({ points: nextPoints })
+    const { data: profile, error: profileError } = await client
+      .from('profile_details')
+      .select('*')
       .eq('public_code', publicCode)
       .eq('role', 'customer')
-      .select('*')
+      .single();
+    if (profileError) throw profileError;
+    const { data, error } = await client
+      .from('customer_profiles')
+      .update({ points: nextPoints })
+      .eq('id', profile.id)
+      .select('points')
       .single();
     if (error) throw error;
-    return mapProfile(data);
+    return mapProfile({ ...profile, points: data.points });
   },
 
   async getCurrentUserVoucherCodes() {

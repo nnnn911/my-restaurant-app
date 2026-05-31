@@ -5,6 +5,7 @@ import {
   getOrders,
   getUsers,
   getVouchers,
+  createUserOnline,
   deleteMenuItemOnline,
   deleteUserOnline,
   deleteVoucherOnline,
@@ -202,4 +203,4 @@ export const scheduleRenderPage = () => {
   searchRenderTimer = window.setTimeout(rerenderOwnerPage, 180);
 };
 
-export { formatDate, formatPrice, getMenu, getOrders, getUsers, getVouchers, deleteMenuItemOnline, deleteUserOnline, deleteVoucherOnline, saveMenu, updateUserPointsOnline, saveUsers, saveVouchers, icon, openStaffConfirm, escapeAttr, escapeHtml };
+export { formatDate, formatPrice, getMenu, getOrders, getUsers, getVouchers, createUserOnline, deleteMenuItemOnline, deleteUserOnline, deleteVoucherOnline, saveMenu, updateUserPointsOnline, saveUsers, saveVouchers, icon, openStaffConfirm, escapeAttr, escapeHtml };
