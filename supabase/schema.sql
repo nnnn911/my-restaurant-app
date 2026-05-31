@@ -120,6 +120,8 @@ alter table public.profiles
   drop column if exists phone,
   drop column if exists points;
 
+drop view if exists public.profile_details;
+
 create or replace view public.profile_details
 with (security_invoker = true)
 as
