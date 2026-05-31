@@ -399,23 +399,26 @@ export const remoteDataService = {
   async updateCustomer(user = {}) {
     const client = requireSupabase();
     const customerAuthId = await resolveCustomerAuthId(client, user);
-    const { data, error } = await client.rpc('owner_update_customer_user', {
-      customer_id: customerAuthId,
-      payload: {
-        name: user.name || '',
-        phone: user.phone || '',
-        points: Number(user.points || 0),
-      },
-    });
+    const row = {
+      id: customerAuthId,
+      name: user.name || 'Khách hàng',
+      phone: user.phone || null,
+      points: Number(user.points || 0),
+    };
+    const { data, error } = await client
+      .from('customer_profiles')
+      .upsert(row, { onConflict: 'id' })
+      .select('id, name, phone, points, created_at')
+      .single();
     if (error) throw error;
     return mapProfile({
-      id: data?.authId || data?.id,
-      public_code: data?.id,
+      id: data.id,
+      public_code: user.id,
       name: data?.name,
       phone: data?.phone,
       points: data?.points || user.points || 0,
       role: 'customer',
-      created_at: data?.createdAt,
+      created_at: user.createdAt || data?.created_at,
     });
   },
 
@@ -448,18 +451,46 @@ export const remoteDataService = {
   async updateStaffActor(actor = {}) {
     const client = requireSupabase();
     const actorAuthId = await resolveStaffActorAuthId(client, actor);
-    const { data, error } = await client.rpc('owner_update_actor_user', {
-      actor_id: actorAuthId,
-      payload: {
-        name: actor.name || '',
-        phone: actor.phone || '',
-        role: actor.role || 'staff',
-        password: actor.password || '',
-        salaryVnd: Number(actor.salaryVnd || 0),
-      },
-    });
+    const nextRole = actor.role === 'shipper' ? 'shipper' : 'staff';
+    const profileRow = { id: actorAuthId, role: nextRole };
+    const { data: currentProfile, error: profileLookupError } = await client
+      .from('profiles')
+      .select('id, public_code, role, created_at')
+      .eq('id', actorAuthId)
+      .maybeSingle();
+    if (profileLookupError) throw profileLookupError;
+    if (!currentProfile?.id) throw new Error('Không tìm thấy nhân viên.');
+    if (currentProfile.role !== nextRole) {
+      const nextCode = actor.id || currentProfile.public_code;
+      profileRow.public_code = nextCode;
+      const { error: profileUpdateError } = await client
+        .from('profiles')
+        .update(profileRow)
+        .eq('id', actorAuthId);
+      if (profileUpdateError) throw profileUpdateError;
+      const oldTable = currentProfile.role === 'shipper' ? 'shipper_profiles' : 'staff_profiles';
+      const { error: deleteOldError } = await client.from(oldTable).delete().eq('id', actorAuthId);
+      if (deleteOldError) throw deleteOldError;
+    }
+    const row = {
+      id: actorAuthId,
+      name: actor.name || 'Nhân viên',
+      phone: actor.phone || null,
+      salary_vnd: Number(actor.salaryVnd || 0),
+    };
+    const table = nextRole === 'shipper' ? 'shipper_profiles' : 'staff_profiles';
+    const { data, error } = await client
+      .from(table)
+      .upsert(row, { onConflict: 'id' })
+      .select('id, name, phone, salary_vnd, created_at')
+      .single();
     if (error) throw error;
-    return mapStaffActor(data);
+    return mapStaffActor({
+      ...data,
+      public_code: actor.id || currentProfile.public_code,
+      role: nextRole,
+      created_at: currentProfile.created_at || data.created_at,
+    });
   },
 
   async deleteStaffActor(actor = {}) {
