@@ -69,13 +69,16 @@ export const getStaffActors = async () => {
 };
 
 export const saveStaffActor = async (actor = {}) => {
+  const existing = isSupabaseConfigured() ? [] : readLocalActors();
+  const safe = validateActor(actor, existing);
+  const isEdit = Boolean(actor.id);
+
   if (isSupabaseConfigured()) {
-    if (actor.authId) return remoteDataService.updateStaffActor(actor);
-    return remoteDataService.createStaffActor(actor);
+    if (isEdit) return remoteDataService.updateStaffActor(safe);
+    return remoteDataService.createStaffActor(safe);
   }
 
-  const actors = readLocalActors();
-  const safe = validateActor(actor, actors);
+  const actors = existing;
   if (!safe.authId && !safe.password) throw new Error('Vui lòng nhập mật khẩu khi tạo nhân viên.');
   const idx = actors.findIndex((item) => item.id === safe.id);
   const nextActor = sanitizeActor({

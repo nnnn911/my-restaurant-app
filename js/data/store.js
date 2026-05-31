@@ -3,84 +3,98 @@
  * Quán Ăn Đồng Quê
  */
 
-import { readJson, removeStorageKey, writeJson, writeJsonIfChanged } from '../core/storage.js';
-import { isSupabaseConfigured } from '../services/supabaseClient.js';
-import { remoteDataService } from '../services/remoteDataService.js';
+import {
+  readJson,
+  removeStorageKey,
+  writeJson,
+  writeJsonIfChanged,
+} from "../core/storage.js";
+import { isSupabaseConfigured } from "../services/supabaseClient.js";
+import { remoteDataService } from "../services/remoteDataService.js";
 
 // Single-key storage (preparing for Admin/Shipper apps)
-const DB_KEY = 'dq_db';
+const DB_KEY = "dq_db";
 const DB_SCHEMA_VERSION = 6;
-const DB_PURGE_KEY = 'dq_db_json_purge_version';
+const DB_PURGE_KEY = "dq_db_json_purge_version";
 const DB_PURGE_VERSION = 1;
 
 // Legacy keys (for one-time migration)
 const LEGACY_KEYS = {
-  USERS: 'dq_users',
-  CURRENT: 'dq_current_user',
-  ORDERS: 'dq_orders',
-  CART: 'dq_cart',
-  VOUCHERS: 'dq_vouchers',
-  MENU: 'dq_menu',
-  RESERVATIONS: 'dq_reservations',
+  USERS: "dq_users",
+  CURRENT: "dq_current_user",
+  ORDERS: "dq_orders",
+  CART: "dq_cart",
+  VOUCHERS: "dq_vouchers",
+  MENU: "dq_menu",
+  RESERVATIONS: "dq_reservations",
 };
 
 let dbCache = null;
 
 const nowIso = () => new Date().toISOString();
 
-const mergeByKey = (base = [], overrides = [], key = 'id') => {
+const mergeByKey = (base = [], overrides = [], key = "id") => {
   const overrideArr = Array.isArray(overrides) ? overrides : [];
-  const overrideMap = new Map(overrideArr.filter((i) => i?.[key]).map((i) => [i[key], i]));
+  const overrideMap = new Map(
+    overrideArr.filter((i) => i?.[key]).map((i) => [i[key], i]),
+  );
   const merged = (Array.isArray(base) ? base : []).map((item) => ({
     ...item,
     ...(overrideMap.get(item[key]) || {}),
   }));
-  const extras = overrideArr.filter((item) => item?.[key] && !(base || []).some((baseItem) => baseItem[key] === item[key]));
+  const extras = overrideArr.filter(
+    (item) =>
+      item?.[key] &&
+      !(base || []).some((baseItem) => baseItem[key] === item[key]),
+  );
   return [...merged, ...extras];
 };
 
-const mergeById = (base = [], overrides = []) => mergeByKey(base, overrides, 'id');
+const mergeById = (base = [], overrides = []) =>
+  mergeByKey(base, overrides, "id");
 
-const PAYMENT_METHODS = new Set(['cash', 'bank', 'momo', 'vnpay']);
+const PAYMENT_METHODS = new Set(["cash", "bank", "momo", "vnpay"]);
 
 const normalizePaymentMethod = (value) => {
-  const method = (value || 'cash').toString().trim().toLowerCase();
-  if (method === 'transfer') return 'bank';
-  return PAYMENT_METHODS.has(method) ? method : 'cash';
+  const method = (value || "cash").toString().trim().toLowerCase();
+  if (method === "transfer") return "bank";
+  return PAYMENT_METHODS.has(method) ? method : "cash";
 };
 
-const normalizeDateTimeLocal = (value, fallbackTime = '00:00') => {
-  const raw = (value || '').toString().trim();
-  if (!raw) return '';
+const normalizeDateTimeLocal = (value, fallbackTime = "00:00") => {
+  const raw = (value || "").toString().trim();
+  if (!raw) return "";
   if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return `${raw}T${fallbackTime}`;
   if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(raw)) return raw;
   const d = new Date(raw);
   if (Number.isNaN(d.getTime())) return raw;
-  const pad = (n) => String(n).padStart(2, '0');
+  const pad = (n) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 };
 
 const normalizeVoucher = (voucher = {}) => ({
   ...voucher,
-  code: (voucher.code || '').toString().trim().toUpperCase(),
-  type: voucher.type === 'percent' ? 'percent' : 'fixed',
+  code: (voucher.code || "").toString().trim().toUpperCase(),
+  type: voucher.type === "percent" ? "percent" : "fixed",
   value: Number.isFinite(Number(voucher.value)) ? Number(voucher.value) : 0,
-  minOrder: Number.isFinite(Number(voucher.minOrder)) ? Number(voucher.minOrder) : 0,
-  startsAt: normalizeDateTimeLocal(voucher.startsAt, '00:00'),
-  expiresAt: normalizeDateTimeLocal(voucher.expiresAt, '23:59'),
-  desc: (voucher.desc || '').toString(),
+  minOrder: Number.isFinite(Number(voucher.minOrder))
+    ? Number(voucher.minOrder)
+    : 0,
+  startsAt: normalizeDateTimeLocal(voucher.startsAt, "00:00"),
+  expiresAt: normalizeDateTimeLocal(voucher.expiresAt, "23:59"),
+  desc: (voucher.desc || "").toString(),
   active: Boolean(voucher.active),
 });
 
 const normalizeMonthlyCost = (cost = {}) => ({
   id: cost.id || cost.month,
-  month: (cost.month || '').toString().slice(0, 7),
+  month: (cost.month || "").toString().slice(0, 7),
   electricity: Math.max(0, Number(cost.electricity || 0)),
   water: Math.max(0, Number(cost.water || 0)),
   rent: Math.max(0, Number(cost.rent || 0)),
   ingredients: Math.max(0, Number(cost.ingredients || 0)),
   staffSalary: Math.max(0, Number(cost.staffSalary ?? cost.staff_salary ?? 0)),
-  note: (cost.note || '').toString(),
+  note: (cost.note || "").toString(),
   createdAt: cost.createdAt || cost.created_at || nowIso(),
   updatedAt: cost.updatedAt || cost.updated_at || nowIso(),
 });
@@ -90,32 +104,36 @@ const normalizeOrderRecord = (order = {}) => ({
   paymentMethod: normalizePaymentMethod(order.paymentMethod),
 });
 
-const normalizePhone = (phone = '') => phone.toString().trim().replace(/\s+/g, '');
+const normalizePhone = (phone = "") =>
+  phone.toString().trim().replace(/\s+/g, "");
 const ROLE_ID_PREFIX = {
-  customer: 'KH',
-  staff: 'NV',
-  owner: 'CH',
-  shipper: 'SP',
+  customer: "KH",
+  staff: "NV",
+  owner: "CH",
+  shipper: "SP",
 };
-const getRoleIdPrefix = (role = 'customer') => ROLE_ID_PREFIX[role] || ROLE_ID_PREFIX.customer;
-const isRoleId = (id, role = 'customer') => new RegExp(`^${getRoleIdPrefix(role)}\\d{5}$`).test((id || '').toString());
-const formatRoleId = (role, n) => `${getRoleIdPrefix(role)}${String(n).padStart(5, '0').slice(-5)}`;
+const getRoleIdPrefix = (role = "customer") =>
+  ROLE_ID_PREFIX[role] || ROLE_ID_PREFIX.customer;
+const isRoleId = (id, role = "customer") =>
+  new RegExp(`^${getRoleIdPrefix(role)}\\d{5}$`).test((id || "").toString());
+const formatRoleId = (role, n) =>
+  `${getRoleIdPrefix(role)}${String(n).padStart(5, "0").slice(-5)}`;
 const isLegacyCustomerSeed = (user = {}) =>
-  (user.id || '').toString().startsWith('u_');
+  (user.id || "").toString().startsWith("u_");
 
 const sanitizeUser = (user = {}, id = user?.id) => {
   const points = Number(user.points || 0);
   const vouchers = Array.isArray(user.vouchers)
     ? user.vouchers
-        .map((code) => (code || '').toString().trim().toUpperCase())
+        .map((code) => (code || "").toString().trim().toUpperCase())
         .filter(Boolean)
     : [];
   return {
     id,
     authId: user.authId || user.auth_id || null,
-    role: user.role || 'customer',
-    name: (user.name || '').toString(),
-    password: (user.password || '').toString(),
+    role: user.role || "customer",
+    name: (user.name || "").toString(),
+    password: (user.password || "").toString(),
     phone: normalizePhone(user.phone),
     points: Number.isFinite(points) ? points : 0,
     vouchers,
@@ -126,20 +144,22 @@ const sanitizeUser = (user = {}, id = user?.id) => {
 const shouldUseRemote = () => isSupabaseConfigured();
 
 const runRemoteSync = (task) => {
-  if (!shouldUseRemote() || typeof task !== 'function') return;
+  if (!shouldUseRemote() || typeof task !== "function") return;
   task().catch((error) => {
-    console.warn('[remote-sync] Không thể đồng bộ dữ liệu online:', error);
+    console.warn("[remote-sync] Không thể đồng bộ dữ liệu online:", error);
   });
 };
 
 const sanitizeUsersWithIds = (users = [], startAt = 1) => {
-  const source = (Array.isArray(users) ? users : []).filter((user) => !isLegacyCustomerSeed(user));
+  const source = (Array.isArray(users) ? users : []).filter(
+    (user) => !isLegacyCustomerSeed(user),
+  );
   const used = new Set();
   const idMap = new Map();
   const nextByRole = {};
 
-  const nextId = (role = 'customer') => {
-    const safeRole = ROLE_ID_PREFIX[role] ? role : 'customer';
+  const nextId = (role = "customer") => {
+    const safeRole = ROLE_ID_PREFIX[role] ? role : "customer";
     let next = Number(nextByRole[safeRole] || startAt);
     while (used.has(formatRoleId(safeRole, next))) next += 1;
     const id = formatRoleId(safeRole, next);
@@ -149,8 +169,8 @@ const sanitizeUsersWithIds = (users = [], startAt = 1) => {
   };
 
   const normalized = source.map((user) => {
-    const rawId = (user?.id || '').toString();
-    const role = user?.role || 'customer';
+    const rawId = (user?.id || "").toString();
+    const role = user?.role || "customer";
     const id = isRoleId(rawId, role) && !used.has(rawId) ? rawId : nextId(role);
     used.add(id);
     idMap.set(rawId, id);
@@ -164,26 +184,31 @@ const sanitizeUsers = (users = []) => sanitizeUsersWithIds(users).users;
 
 const getNextUserId = (users = []) => {
   const ids = (Array.isArray(users) ? users : [])
-    .filter((u) => (u?.role || 'customer') === 'customer')
+    .filter((u) => (u?.role || "customer") === "customer")
     .map((u) => {
-      const m = /^KH(\d{5})$/.exec((u?.id || '').toString());
+      const m = /^KH(\d{5})$/.exec((u?.id || "").toString());
       return m ? Number(m[1]) : 0;
     })
     .filter((n) => Number.isFinite(n) && n >= 0);
   const max = ids.length ? Math.max(...ids) : 0;
-  return formatRoleId('customer', max + 1);
+  return formatRoleId("customer", max + 1);
 };
 
 const normalizeDbUsers = (db) => {
   const { users, idMap } = sanitizeUsersWithIds(db.users);
-  const rawCurrentUserId = (db.currentUserId || '').toString();
+  const rawCurrentUserId = (db.currentUserId || "").toString();
   const mappedCurrentUserId = idMap.get(rawCurrentUserId) || rawCurrentUserId;
-  const currentUserId = users.some((u) => u.id === mappedCurrentUserId) ? mappedCurrentUserId : null;
+  const currentUserId = users.some((u) => u.id === mappedCurrentUserId)
+    ? mappedCurrentUserId
+    : null;
   const carts = {};
 
   Object.entries(db.carts || {}).forEach(([owner, cart]) => {
     const nextOwner = idMap.get(owner) || owner;
-    carts[nextOwner] = [...(carts[nextOwner] || []), ...(Array.isArray(cart) ? cart : [])];
+    carts[nextOwner] = [
+      ...(carts[nextOwner] || []),
+      ...(Array.isArray(cart) ? cart : []),
+    ];
   });
 
   return { ...db, users, currentUserId, carts };
@@ -204,29 +229,39 @@ const createEmptyDb = () => ({
   meta: {},
 });
 
-const normalizeCacheDb = (db = {}) => normalizeDbUsers({
-  ...createEmptyDb(),
-  ...db,
-  schemaVersion: DB_SCHEMA_VERSION,
-  users: sanitizeUsers(db.users || []),
-  orders: (db.orders || []).map(normalizeOrderRecord),
-  reservations: Array.isArray(db.reservations) ? db.reservations : [],
-  monthlyCosts: Array.isArray(db.monthlyCosts) ? db.monthlyCosts.map(normalizeMonthlyCost) : [],
-  vouchers: Array.isArray(db.vouchers) ? db.vouchers.map(normalizeVoucher) : [],
-  menu: Array.isArray(db.menu) ? db.menu.map((item) => ({ ...item, sold: Number(item.sold || 0) })) : [],
-  meta: db.meta && typeof db.meta === 'object' ? { ...db.meta } : {},
-});
+const normalizeCacheDb = (db = {}) =>
+  normalizeDbUsers({
+    ...createEmptyDb(),
+    ...db,
+    schemaVersion: DB_SCHEMA_VERSION,
+    users: sanitizeUsers(db.users || []),
+    orders: (db.orders || []).map(normalizeOrderRecord),
+    reservations: Array.isArray(db.reservations) ? db.reservations : [],
+    monthlyCosts: Array.isArray(db.monthlyCosts)
+      ? db.monthlyCosts.map(normalizeMonthlyCost)
+      : [],
+    vouchers: Array.isArray(db.vouchers)
+      ? db.vouchers.map(normalizeVoucher)
+      : [],
+    menu: Array.isArray(db.menu)
+      ? db.menu.map((item) => ({ ...item, sold: Number(item.sold || 0) }))
+      : [],
+    meta: db.meta && typeof db.meta === "object" ? { ...db.meta } : {},
+  });
 
 /* ---- Checkout draft (transient state stored in dq_db) ---- */
 export const getCheckoutDraft = () => {
   const db = ensureDb();
   const draft = db?.meta?.checkoutDraft;
-  return draft && typeof draft === 'object' ? draft : null;
+  return draft && typeof draft === "object" ? draft : null;
 };
 
 export const setCheckoutDraft = (draft) => {
   const db = ensureDb();
-  const next = draft && typeof draft === 'object' ? { ...draft, updatedAt: nowIso() } : null;
+  const next =
+    draft && typeof draft === "object"
+      ? { ...draft, updatedAt: nowIso() }
+      : null;
   const meta = { ...(db.meta || {}) };
   if (!next) delete meta.checkoutDraft;
   else meta.checkoutDraft = next;
@@ -283,13 +318,23 @@ const migrateLegacyToDb = () => {
     if (!exists) db.users.push(legacyCurrent);
   }
 
-  const cartOwner = db.currentUserId || 'guest';
+  const cartOwner = db.currentUserId || "guest";
   db.carts = { [cartOwner]: Array.isArray(legacyCart) ? legacyCart : [] };
 
-  db.orders = mergeById(db.orders, Array.isArray(legacyOrders) ? legacyOrders : []);
-  db.vouchers = Array.isArray(legacyVouchers) ? mergeByKey(db.vouchers || [], legacyVouchers, 'code') : db.vouchers;
-  db.menu = Array.isArray(legacyMenu) ? mergeById(db.menu || [], legacyMenu) : db.menu;
-  db.reservations = mergeById(db.reservations, Array.isArray(legacyReservations) ? legacyReservations : []);
+  db.orders = mergeById(
+    db.orders,
+    Array.isArray(legacyOrders) ? legacyOrders : [],
+  );
+  db.vouchers = Array.isArray(legacyVouchers)
+    ? mergeByKey(db.vouchers || [], legacyVouchers, "code")
+    : db.vouchers;
+  db.menu = Array.isArray(legacyMenu)
+    ? mergeById(db.menu || [], legacyMenu)
+    : db.menu;
+  db.reservations = mergeById(
+    db.reservations,
+    Array.isArray(legacyReservations) ? legacyReservations : [],
+  );
 
   db.meta = { ...(db.meta || {}), migratedFromLegacyAt: nowIso() };
 
@@ -302,7 +347,7 @@ const ensureDb = () => {
   if (dbCache) return dbCache;
   ensureDbJsonPurge();
   const existing = readJson(DB_KEY, null);
-  if (existing && typeof existing === 'object') {
+  if (existing && typeof existing === "object") {
     if (existing.schemaVersion !== DB_SCHEMA_VERSION) {
       const fresh = createEmptyDb();
       dbCache = fresh;
@@ -321,46 +366,74 @@ const ensureDb = () => {
 export const hydrateOnlineData = async () => {
   if (!shouldUseRemote()) return { ok: true, remote: false };
   const db = ensureDb();
-  const nextDb = { ...db, meta: { ...(db.meta || {}), lastOnlineHydrateAttemptAt: nowIso() } };
+  const nextDb = {
+    ...db,
+    meta: { ...(db.meta || {}), lastOnlineHydrateAttemptAt: nowIso() },
+  };
 
   try {
-    const profile = await remoteDataService.getCurrentProfile().catch(() => null);
-    if (profile?.id && profile.role === 'customer') {
+    const profile = await remoteDataService
+      .getCurrentProfile()
+      .catch(() => null);
+    if (profile?.id && profile.role === "customer") {
       const users = Array.isArray(nextDb.users) ? [...nextDb.users] : [];
       const idx = users.findIndex((u) => u.id === profile.id);
-      if (idx >= 0) users[idx] = sanitizeUser({ ...users[idx], ...profile }, profile.id);
+      if (idx >= 0)
+        users[idx] = sanitizeUser({ ...users[idx], ...profile }, profile.id);
       else users.push(sanitizeUser(profile, profile.id));
       nextDb.users = users;
       nextDb.currentUserId = profile.id;
     }
 
-    const [menu, vouchers, orders, reservations, monthlyCosts, cart, users, userVoucherCodes] = await Promise.all([
+    const [
+      menu,
+      vouchers,
+      orders,
+      reservations,
+      monthlyCosts,
+      cart,
+      users,
+      userVoucherCodes,
+    ] = await Promise.all([
       remoteDataService.getMenu().catch(() => null),
       remoteDataService.getVouchers().catch(() => null),
       remoteDataService.getOrders().catch(() => null),
       remoteDataService.getReservations().catch(() => null),
-      ['owner', 'staff'].includes(profile?.role) ? remoteDataService.getMonthlyCosts().catch(() => null) : Promise.resolve(null),
-      profile?.role === 'customer' ? remoteDataService.getCart().catch(() => null) : Promise.resolve(null),
-      ['owner', 'staff'].includes(profile?.role) ? remoteDataService.getUsers().catch(() => null) : Promise.resolve(null),
-      profile?.role === 'customer' ? remoteDataService.getCurrentUserVoucherCodes().catch(() => null) : Promise.resolve(null),
+      ["owner", "staff"].includes(profile?.role)
+        ? remoteDataService.getMonthlyCosts().catch(() => null)
+        : Promise.resolve(null),
+      profile?.role === "customer"
+        ? remoteDataService.getCart().catch(() => null)
+        : Promise.resolve(null),
+      ["owner", "staff"].includes(profile?.role)
+        ? remoteDataService.getUsers().catch(() => null)
+        : Promise.resolve(null),
+      profile?.role === "customer"
+        ? remoteDataService.getCurrentUserVoucherCodes().catch(() => null)
+        : Promise.resolve(null),
     ]);
 
     if (Array.isArray(menu)) nextDb.menu = menu;
     if (Array.isArray(vouchers)) nextDb.vouchers = vouchers;
     if (Array.isArray(orders)) nextDb.orders = orders.map(normalizeOrderRecord);
     if (Array.isArray(reservations)) nextDb.reservations = reservations;
-    if (Array.isArray(monthlyCosts)) nextDb.monthlyCosts = monthlyCosts.map(normalizeMonthlyCost);
-    if (Array.isArray(users)) nextDb.users = users.map((user) => sanitizeUser(user, user.id));
-    if (profile?.role === 'customer' && Array.isArray(cart)) {
+    if (Array.isArray(monthlyCosts))
+      nextDb.monthlyCosts = monthlyCosts.map(normalizeMonthlyCost);
+    if (Array.isArray(users))
+      nextDb.users = users.map((user) => sanitizeUser(user, user.id));
+    if (profile?.role === "customer" && Array.isArray(cart)) {
       nextDb.carts = { ...(nextDb.carts || {}), [profile.id]: cart };
     }
-    if (profile?.role === 'customer' && Array.isArray(userVoucherCodes)) {
+    if (profile?.role === "customer" && Array.isArray(userVoucherCodes)) {
       const allUsers = Array.isArray(nextDb.users) ? [...nextDb.users] : [];
       const idx = allUsers.findIndex((user) => user.id === profile.id);
-      const nextUser = sanitizeUser({
-        ...(idx >= 0 ? allUsers[idx] : profile),
-        vouchers: userVoucherCodes,
-      }, profile.id);
+      const nextUser = sanitizeUser(
+        {
+          ...(idx >= 0 ? allUsers[idx] : profile),
+          vouchers: userVoucherCodes,
+        },
+        profile.id,
+      );
       if (idx >= 0) allUsers[idx] = nextUser;
       else allUsers.push(nextUser);
       nextDb.users = allUsers;
@@ -378,7 +451,7 @@ export const hydrateOnlineData = async () => {
     nextDb.meta = {
       ...(nextDb.meta || {}),
       onlineEnabled: true,
-      lastOnlineHydrateError: error?.message || 'Không thể tải dữ liệu online.',
+      lastOnlineHydrateError: error?.message || "Không thể tải dữ liệu online.",
       lastOnlineHydrateErrorAt: nowIso(),
     };
     saveDb(nextDb);
@@ -390,26 +463,28 @@ let onlineRealtimeUnsubscribe = null;
 let onlineRealtimeHydrateTimer = null;
 
 export const startOnlineRealtime = (onChange) => {
-  if (!shouldUseRemote() || onlineRealtimeUnsubscribe) return onlineRealtimeUnsubscribe;
+  if (!shouldUseRemote() || onlineRealtimeUnsubscribe)
+    return onlineRealtimeUnsubscribe;
   onlineRealtimeUnsubscribe = remoteDataService.subscribeBusinessChanges(() => {
     window.clearTimeout(onlineRealtimeHydrateTimer);
     onlineRealtimeHydrateTimer = window.setTimeout(async () => {
       const result = await hydrateOnlineData();
-      if (result.ok && typeof onChange === 'function') onChange();
+      if (result.ok && typeof onChange === "function") onChange();
     }, 350);
   });
   return onlineRealtimeUnsubscribe;
 };
 
 export const stopOnlineRealtime = () => {
-  if (typeof onlineRealtimeUnsubscribe === 'function') onlineRealtimeUnsubscribe();
+  if (typeof onlineRealtimeUnsubscribe === "function")
+    onlineRealtimeUnsubscribe();
   onlineRealtimeUnsubscribe = null;
   window.clearTimeout(onlineRealtimeHydrateTimer);
 };
 
 const getCartOwnerKey = () => {
   const db = ensureDb();
-  return db.currentUserId || 'guest';
+  return db.currentUserId || "guest";
 };
 
 /* ---- Backwards-compatible helpers (previous API) ---- */
@@ -428,10 +503,13 @@ export const updateCustomerOnline = async (user = {}) => {
   const db = ensureDb();
   const users = sanitizeUsers(db.users || []);
   const idx = users.findIndex((item) => item.id === user.id);
-  if (idx === -1) throw new Error('Không tìm thấy tài khoản khách hàng.');
+  if (idx === -1) throw new Error("Không tìm thấy tài khoản khách hàng.");
   let updated = sanitizeUser({ ...users[idx], ...user }, users[idx].id);
   if (shouldUseRemote()) {
-    updated = sanitizeUser(await remoteDataService.updateCustomer(updated), updated.id);
+    updated = sanitizeUser(
+      await remoteDataService.updateCustomer(updated),
+      updated.id,
+    );
   }
   users[idx] = sanitizeUser({ ...users[idx], ...updated }, users[idx].id);
   saveDb({ ...db, users });
@@ -442,22 +520,25 @@ export const createUserOnline = async (user = {}) => {
   const db = ensureDb();
   const users = sanitizeUsers(db.users || []);
   const phone = normalizePhone(user.phone);
-  if (!phone) throw new Error('Vui lòng nhập số điện thoại.');
+  if (!phone) throw new Error("Vui lòng nhập số điện thoại.");
   if (users.some((item) => normalizePhone(item.phone) === phone)) {
-    throw new Error('Số điện thoại đã được sử dụng.');
+    throw new Error("Số điện thoại đã được sử dụng.");
   }
 
   let nextUser = sanitizeUser({
     ...user,
     id: getNextUserId(users),
     phone,
-    role: 'customer',
+    role: "customer",
     points: Math.max(0, Number(user.points || 0)),
     createdAt: nowIso(),
   });
 
   if (shouldUseRemote()) {
-    nextUser = sanitizeUser(await remoteDataService.createCustomer(nextUser), nextUser.id);
+    nextUser = sanitizeUser(
+      await remoteDataService.createCustomer(nextUser),
+      nextUser.id,
+    );
   }
 
   const nextUsers = sanitizeUsers([...users, nextUser]);
@@ -468,16 +549,22 @@ export const createUserOnline = async (user = {}) => {
 export const deleteUserOnline = async (userId) => {
   const users = getUsers();
   if (shouldUseRemote()) await remoteDataService.deleteCustomer(userId);
-  saveDb({ ...ensureDb(), users: sanitizeUsers(users.filter((user) => user.id !== userId)) });
+  saveDb({
+    ...ensureDb(),
+    users: sanitizeUsers(users.filter((user) => user.id !== userId)),
+  });
 };
 
 export const updateUserPointsOnline = async (userId, points) => {
   const db = ensureDb();
   const users = sanitizeUsers(db.users || []);
   const idx = users.findIndex((user) => user.id === userId);
-  if (idx === -1) throw new Error('Không tìm thấy tài khoản khách hàng.');
+  if (idx === -1) throw new Error("Không tìm thấy tài khoản khách hàng.");
 
-  let updated = sanitizeUser({ ...users[idx], points: Math.max(0, Number(points || 0)) }, users[idx].id);
+  let updated = sanitizeUser(
+    { ...users[idx], points: Math.max(0, Number(points || 0)) },
+    users[idx].id,
+  );
   if (shouldUseRemote()) {
     updated = await remoteDataService.updateUserPoints(userId, updated.points);
   }
@@ -493,18 +580,34 @@ export const getMonthlyCosts = () => ensureDb().monthlyCosts || [];
 export const saveMonthlyCostOnline = async (cost = {}) => {
   const db = ensureDb();
   let nextCost = normalizeMonthlyCost(cost);
-  if (!/^\d{4}-\d{2}$/.test(nextCost.month)) throw new Error('Tháng chi phí không hợp lệ.');
-  if (shouldUseRemote()) nextCost = normalizeMonthlyCost(await remoteDataService.saveMonthlyCost(nextCost));
-  const costs = (db.monthlyCosts || []).filter((item) => item.month !== nextCost.month);
-  saveDb({ ...db, monthlyCosts: [...costs, nextCost].sort((a, b) => b.month.localeCompare(a.month)) });
+  if (!/^\d{4}-\d{2}$/.test(nextCost.month))
+    throw new Error("Tháng chi phí không hợp lệ.");
+  if (shouldUseRemote())
+    nextCost = normalizeMonthlyCost(
+      await remoteDataService.saveMonthlyCost(nextCost),
+    );
+  const costs = (db.monthlyCosts || []).filter(
+    (item) => item.month !== nextCost.month,
+  );
+  saveDb({
+    ...db,
+    monthlyCosts: [...costs, nextCost].sort((a, b) =>
+      b.month.localeCompare(a.month),
+    ),
+  });
   return nextCost;
 };
 
 export const deleteMonthlyCostOnline = async (month) => {
-  const safeMonth = (month || '').toString().slice(0, 7);
+  const safeMonth = (month || "").toString().slice(0, 7);
   if (shouldUseRemote()) await remoteDataService.deleteMonthlyCost(safeMonth);
   const db = ensureDb();
-  saveDb({ ...db, monthlyCosts: (db.monthlyCosts || []).filter((item) => item.month !== safeMonth) });
+  saveDb({
+    ...db,
+    monthlyCosts: (db.monthlyCosts || []).filter(
+      (item) => item.month !== safeMonth,
+    ),
+  });
 };
 
 export const getCurrentUser = () => {
@@ -533,7 +636,8 @@ export const clearCurrentUser = () => {
 export const registerUser = (data) => {
   const users = getUsers();
   const phone = normalizePhone(data.phone);
-  if (users.find(u => normalizePhone(u.phone) === phone)) return { ok: false, msg: 'Số điện thoại đã được sử dụng.' };
+  if (users.find((u) => normalizePhone(u.phone) === phone))
+    return { ok: false, msg: "Số điện thoại đã được sử dụng." };
   const user = {
     id: getNextUserId(users),
     name: data.name,
@@ -549,8 +653,13 @@ export const registerUser = (data) => {
 
 export const loginUser = (phone, password) => {
   const users = getUsers();
-  const user = users.find(u => normalizePhone(u.phone) === normalizePhone(phone) && u.password === password);
-  if (!user) return { ok: false, msg: 'Số điện thoại hoặc mật khẩu không đúng.' };
+  const user = users.find(
+    (u) =>
+      normalizePhone(u.phone) === normalizePhone(phone) &&
+      u.password === password,
+  );
+  if (!user)
+    return { ok: false, msg: "Số điện thoại hoặc mật khẩu không đúng." };
   saveCurrentUser(user);
   return { ok: true, user };
 };
@@ -559,11 +668,16 @@ export const updateUser = async (updates) => {
   const current = getCurrentUser();
   if (!current) return;
   const users = getUsers();
-  const idx = users.findIndex(u => u.id === current.id);
+  const idx = users.findIndex((u) => u.id === current.id);
   if (idx === -1) return;
-  const nextPhone = updates?.phone ? normalizePhone(updates.phone) : '';
-  if (nextPhone && users.some((u) => u.id !== current.id && normalizePhone(u.phone) === nextPhone)) {
-    return { ok: false, msg: 'Số điện thoại đã được sử dụng.' };
+  const nextPhone = updates?.phone ? normalizePhone(updates.phone) : "";
+  if (
+    nextPhone &&
+    users.some(
+      (u) => u.id !== current.id && normalizePhone(u.phone) === nextPhone,
+    )
+  ) {
+    return { ok: false, msg: "Số điện thoại đã được sử dụng." };
   }
   let updated = sanitizeUser({ ...users[idx], ...updates });
   if (shouldUseRemote()) {
@@ -579,7 +693,7 @@ export const updateUser = async (updates) => {
 
 export const addPoints = (userId, points) => {
   const users = getUsers();
-  const idx = users.findIndex(u => u.id === userId);
+  const idx = users.findIndex((u) => u.id === userId);
   if (idx === -1) return null;
   users[idx].points = (users[idx].points || 0) + points;
   saveUsers(users);
@@ -589,7 +703,10 @@ export const addPoints = (userId, points) => {
 };
 
 export const calculateOrderPoints = (orderOrTotal) => {
-  const total = typeof orderOrTotal === 'number' ? orderOrTotal : Number(orderOrTotal?.total || 0);
+  const total =
+    typeof orderOrTotal === "number"
+      ? orderOrTotal
+      : Number(orderOrTotal?.total || 0);
   return Number.isFinite(total) && total > 0 ? Math.floor(total / 10000) : 0;
 };
 
@@ -616,34 +733,44 @@ export const clearCart = () => {
 
 export const addToCart = (item) => {
   const cart = getCart();
-  const note = (item.note || '').toString().trim();
-  const existing = cart.find(c => c.id === item.id && (c.note || '').toString().trim() === note);
+  const note = (item.note || "").toString().trim();
+  const existing = cart.find(
+    (c) => c.id === item.id && (c.note || "").toString().trim() === note,
+  );
   if (existing) {
     existing.qty += item.qty || 1;
   } else {
-    cart.push({ ...item, note, qty: item.qty || 1, cartId: 'ci_' + Date.now() + Math.random() });
+    cart.push({
+      ...item,
+      note,
+      qty: item.qty || 1,
+      cartId: "ci_" + Date.now() + Math.random(),
+    });
   }
   saveCart(cart);
   return cart;
 };
 
 export const removeFromCart = (cartId) => {
-  const cart = getCart().filter(c => c.cartId !== cartId);
+  const cart = getCart().filter((c) => c.cartId !== cartId);
   saveCart(cart);
   return cart;
 };
 
 export const updateCartQty = (cartId, qty) => {
   const cart = getCart();
-  const item = cart.find(c => c.cartId === cartId);
-  if (item) { if (qty <= 0) return removeFromCart(cartId); item.qty = qty; }
+  const item = cart.find((c) => c.cartId === cartId);
+  if (item) {
+    if (qty <= 0) return removeFromCart(cartId);
+    item.qty = qty;
+  }
   saveCart(cart);
   return cart;
 };
 
-export const updateCartItemNote = (cartId, note = '') => {
+export const updateCartItemNote = (cartId, note = "") => {
   const cart = getCart();
-  const item = cart.find(c => c.cartId === cartId);
+  const item = cart.find((c) => c.cartId === cartId);
   if (!item) return cart;
   item.note = note.toString().trim();
   saveCart(cart);
@@ -653,8 +780,7 @@ export const updateCartItemNote = (cartId, note = '') => {
 export const getCartTotal = () =>
   getCart().reduce((sum, c) => sum + c.price * c.qty, 0);
 
-export const getCartCount = () =>
-  getCart().reduce((sum, c) => sum + c.qty, 0);
+export const getCartCount = () => getCart().reduce((sum, c) => sum + c.qty, 0);
 
 /* ---- Orders ---- */
 export const getOrders = () => {
@@ -664,7 +790,9 @@ export const getOrders = () => {
 
 export const saveOrders = (orders) => {
   const db = ensureDb();
-  const normalized = Array.isArray(orders) ? orders.map(normalizeOrderRecord) : [];
+  const normalized = Array.isArray(orders)
+    ? orders.map(normalizeOrderRecord)
+    : [];
   saveDb({ ...db, orders: normalized });
   runRemoteSync(() => remoteDataService.saveOrders(normalized));
 };
@@ -674,12 +802,12 @@ export const createOrder = (orderData) => {
   const orders = Array.isArray(db.orders) ? [...db.orders] : [];
 
   const meta = { ...(db.meta || {}) };
-  const isPosOrder = (orderData?.source || '').toString() === 'pos';
-  const idPrefix = isPosOrder ? 'POS' : 'ORD';
-  const metaSeqKey = isPosOrder ? 'posOrderSeq' : 'orderSeq';
+  const isPosOrder = (orderData?.source || "").toString() === "pos";
+  const idPrefix = isPosOrder ? "POS" : "ORD";
+  const metaSeqKey = isPosOrder ? "posOrderSeq" : "orderSeq";
 
   const parseSeqFromId = (id) => {
-    const m = new RegExp(`^${idPrefix}-(\\d{4})$`).exec((id || '').toString());
+    const m = new RegExp(`^${idPrefix}-(\\d{4})$`).exec((id || "").toString());
     if (!m) return null;
     const n = Number(m[1]);
     return Number.isFinite(n) ? n : null;
@@ -693,7 +821,7 @@ export const createOrder = (orderData) => {
   const usedSeq = new Set(
     orders
       .map((o) => parseSeqFromId(o?.id))
-      .filter((n) => Number.isFinite(n) && n >= 1 && n <= 9999)
+      .filter((n) => Number.isFinite(n) && n >= 1 && n <= 9999),
   );
 
   let seq = Number(meta[metaSeqKey]);
@@ -712,17 +840,19 @@ export const createOrder = (orderData) => {
   seq = nextSeq;
 
   meta[metaSeqKey] = seq;
-  const id = `${idPrefix}-${String(seq).padStart(4, '0')}`;
+  const id = `${idPrefix}-${String(seq).padStart(4, "0")}`;
 
   const order = {
     id,
     ...orderData,
-    source: orderData.source || 'order',
+    source: orderData.source || "order",
     paymentMethod: normalizePaymentMethod(orderData.paymentMethod),
     pointsEarned: calculateOrderPoints(orderData),
     pointsAwarded: false,
     pointsAwardedAt: null,
-    status: orderData.status || (orderData.source === 'pos' ? 'completed' : 'pending'),
+    status:
+      orderData.status ||
+      (orderData.source === "pos" ? "completed" : "pending"),
     createdAt: nowIso(),
   };
 
@@ -735,8 +865,13 @@ export const createOrder = (orderData) => {
 export const createOrderOnline = async (orderData) => {
   if (!shouldUseRemote()) return createOrder(orderData);
 
-  const usedVoucherCode = (orderData?.voucherCode || '').toString().trim().toUpperCase();
-  const usedVoucher = usedVoucherCode ? getVouchers().find((voucher) => voucher.code === usedVoucherCode) : null;
+  const usedVoucherCode = (orderData?.voucherCode || "")
+    .toString()
+    .trim()
+    .toUpperCase();
+  const usedVoucher = usedVoucherCode
+    ? getVouchers().find((voucher) => voucher.code === usedVoucherCode)
+    : null;
   const order = await remoteDataService.createOrder({
     ...orderData,
     pointsEarned: calculateOrderPoints(orderData),
@@ -756,25 +891,39 @@ export const createOrderOnline = async (orderData) => {
     qtyById.set(item.id, (qtyById.get(item.id) || 0) + Number(item.qty || 0));
   });
   if (qtyById.size) {
-    const updatedMenu = menu.map((item) => (
+    const updatedMenu = menu.map((item) =>
       qtyById.has(item.id)
-        ? { ...item, sold: Number(item.sold || 0) + Number(qtyById.get(item.id) || 0) }
-        : item
-    ));
+        ? {
+            ...item,
+            sold: Number(item.sold || 0) + Number(qtyById.get(item.id) || 0),
+          }
+        : item,
+    );
     saveDb({ ...ensureDb(), menu: updatedMenu });
   }
 
-  if (usedVoucherCode && (usedVoucher?.source === 'rewards' || usedVoucher?.userId)) {
+  if (
+    usedVoucherCode &&
+    (usedVoucher?.source === "rewards" || usedVoucher?.userId)
+  ) {
     const nextDb = ensureDb();
-    const users = sanitizeUsers(nextDb.users || []).map((user) => (
+    const users = sanitizeUsers(nextDb.users || []).map((user) =>
       user.id === nextDb.currentUserId
-        ? { ...user, vouchers: (user.vouchers || []).filter((code) => (code || '').toString().toUpperCase() !== usedVoucherCode) }
-        : user
-    ));
+        ? {
+            ...user,
+            vouchers: (user.vouchers || []).filter(
+              (code) =>
+                (code || "").toString().toUpperCase() !== usedVoucherCode,
+            ),
+          }
+        : user,
+    );
     saveDb({
       ...nextDb,
       users,
-      vouchers: getVouchers().filter((voucher) => voucher.code !== usedVoucherCode),
+      vouchers: getVouchers().filter(
+        (voucher) => voucher.code !== usedVoucherCode,
+      ),
     });
   }
 
@@ -802,19 +951,30 @@ export const updateOrderStatusOnline = async (orderId, nextStatus) => {
   return result;
 };
 
-export const updateReservationStatusOnline = async (reservationId, nextStatus) => {
+export const updateReservationStatusOnline = async (
+  reservationId,
+  nextStatus,
+) => {
   if (!shouldUseRemote()) return null;
-  const result = await remoteDataService.updateReservationStatus(reservationId, nextStatus);
+  const result = await remoteDataService.updateReservationStatus(
+    reservationId,
+    nextStatus,
+  );
   const db = ensureDb();
-  const reservations = Array.isArray(db.reservations) ? [...db.reservations] : [];
-  const idx = reservations.findIndex((reservation) => reservation.id === reservationId);
+  const reservations = Array.isArray(db.reservations)
+    ? [...db.reservations]
+    : [];
+  const idx = reservations.findIndex(
+    (reservation) => reservation.id === reservationId,
+  );
   if (idx >= 0) {
     reservations[idx] = {
       ...reservations[idx],
       status: result?.status || nextStatus,
       pointsEarned: result?.pointsEarned ?? reservations[idx].pointsEarned,
       pointsAwarded: result?.pointsAwarded ?? reservations[idx].pointsAwarded,
-      pointsAwardedAt: result?.pointsAwardedAt ?? reservations[idx].pointsAwardedAt,
+      pointsAwardedAt:
+        result?.pointsAwardedAt ?? reservations[idx].pointsAwardedAt,
       updatedAt: result?.updatedAt || nowIso(),
     };
     saveDb({ ...db, reservations });
@@ -823,10 +983,9 @@ export const updateReservationStatusOnline = async (reservationId, nextStatus) =
 };
 
 export const getUserOrders = (userId) =>
-  getOrders().filter(o => o.userId === userId);
+  getOrders().filter((o) => o.userId === userId);
 
-export const getOrderById = (id) =>
-  getOrders().find(o => o.id === id);
+export const getOrderById = (id) => getOrders().find((o) => o.id === id);
 
 /* ---- Vouchers ---- */
 export const getVouchers = () => {
@@ -836,52 +995,94 @@ export const getVouchers = () => {
 
 export const saveVouchers = (vouchers) => {
   const db = ensureDb();
-  const normalized = Array.isArray(vouchers) ? vouchers.map(normalizeVoucher) : [];
+  const normalized = Array.isArray(vouchers)
+    ? vouchers.map(normalizeVoucher)
+    : [];
   saveDb({ ...db, vouchers: normalized });
   runRemoteSync(() => remoteDataService.saveVouchers(normalized));
 };
 
+export const saveVoucherOnline = async (oldCode, voucher = {}) => {
+  const db = ensureDb();
+  const normalizedOldCode = (oldCode || "").toString().trim().toUpperCase();
+  let nextVoucher = normalizeVoucher(voucher);
+  if (!nextVoucher.code) throw new Error("Mã voucher không hợp lệ.");
+  if (shouldUseRemote()) {
+    nextVoucher = normalizeVoucher(
+      await remoteDataService.saveVoucher(normalizedOldCode, nextVoucher),
+    );
+  }
+  const vouchers = getVouchers().filter(
+    (item) => item.code !== normalizedOldCode && item.code !== nextVoucher.code,
+  );
+  saveDb({ ...db, vouchers: [...vouchers, nextVoucher] });
+  return nextVoucher;
+};
+
 export const deleteVoucherOnline = async (code) => {
-  const normalizedCode = (code || '').toString().trim().toUpperCase();
+  const normalizedCode = (code || "").toString().trim().toUpperCase();
   if (shouldUseRemote()) await remoteDataService.deleteVoucher(normalizedCode);
-  saveDb({ ...ensureDb(), vouchers: getVouchers().filter((voucher) => voucher.code !== normalizedCode) });
+  saveDb({
+    ...ensureDb(),
+    vouchers: getVouchers().filter(
+      (voucher) => voucher.code !== normalizedCode,
+    ),
+  });
 };
 
 export const validateVoucher = (code, orderTotal) => {
-  const normalizedCode = (code || '').toString().trim().toUpperCase();
+  const normalizedCode = (code || "").toString().trim().toUpperCase();
   const vouchers = getVouchers();
-  const v = vouchers.find(v => v.code === normalizedCode);
-  if (!v) return { ok: false, msg: 'Mã voucher không tồn tại.' };
-  if (!v.active) return { ok: false, msg: 'Mã voucher đã hết hạn.' };
-  if (v.source === 'rewards' || v.userId) {
+  const v = vouchers.find((v) => v.code === normalizedCode);
+  if (!v) return { ok: false, msg: "Mã voucher không tồn tại." };
+  if (!v.active) return { ok: false, msg: "Mã voucher đã hết hạn." };
+  if (v.source === "rewards" || v.userId) {
     const user = getCurrentUser();
-    const owned = new Set((user?.vouchers || []).map((item) => (item || '').toString().toUpperCase()));
-    if (!owned.has(normalizedCode)) return { ok: false, msg: 'Voucher này chỉ dùng được cho tài khoản đã đổi.' };
+    const owned = new Set(
+      (user?.vouchers || []).map((item) =>
+        (item || "").toString().toUpperCase(),
+      ),
+    );
+    if (!owned.has(normalizedCode))
+      return {
+        ok: false,
+        msg: "Voucher này chỉ dùng được cho tài khoản đã đổi.",
+      };
   }
   const now = new Date();
   const startsAt = v.startsAt ? new Date(v.startsAt) : null;
   const expiresAt = v.expiresAt ? new Date(v.expiresAt) : null;
-  if (startsAt && !Number.isNaN(startsAt.getTime()) && now < startsAt) return { ok: false, msg: 'Mã voucher chưa đến thời gian sử dụng.' };
-  if (expiresAt && !Number.isNaN(expiresAt.getTime()) && now > expiresAt) return { ok: false, msg: 'Mã voucher đã hết hạn.' };
-  if (orderTotal < v.minOrder) return { ok: false, msg: `Đơn hàng tối thiểu ${formatPrice(v.minOrder)} để dùng mã này.` };
-  const discount = v.type === 'percent'
-    ? Math.round(orderTotal * v.value / 100)
-    : v.value;
+  if (startsAt && !Number.isNaN(startsAt.getTime()) && now < startsAt)
+    return { ok: false, msg: "Mã voucher chưa đến thời gian sử dụng." };
+  if (expiresAt && !Number.isNaN(expiresAt.getTime()) && now > expiresAt)
+    return { ok: false, msg: "Mã voucher đã hết hạn." };
+  if (orderTotal < v.minOrder)
+    return {
+      ok: false,
+      msg: `Đơn hàng tối thiểu ${formatPrice(v.minOrder)} để dùng mã này.`,
+    };
+  const discount =
+    v.type === "percent" ? Math.round((orderTotal * v.value) / 100) : v.value;
   return { ok: true, voucher: v, discount };
 };
 
 const generateVoucherCode = () => {
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-  const existing = new Set(getVouchers().map((v) => (v.code || '').toString().toUpperCase()));
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  const existing = new Set(
+    getVouchers().map((v) => (v.code || "").toString().toUpperCase()),
+  );
   for (let attempt = 0; attempt < 50; attempt += 1) {
-    let code = '';
+    let code = "";
     const cryptoApi = globalThis.crypto;
     if (cryptoApi?.getRandomValues) {
       const values = new Uint32Array(10);
       cryptoApi.getRandomValues(values);
-      code = Array.from(values, (n) => chars[n % chars.length]).join('');
+      code = Array.from(values, (n) => chars[n % chars.length]).join("");
     } else {
-      code = Array.from({ length: 10 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
+      code = Array.from(
+        { length: 10 },
+        () => chars[Math.floor(Math.random() * chars.length)],
+      ).join("");
     }
     if (!existing.has(code)) return code;
   }
@@ -891,51 +1092,66 @@ const generateVoucherCode = () => {
 export const getCurrentUserVouchers = () => {
   const user = getCurrentUser();
   if (!user) return [];
-  const owned = new Set((user.vouchers || []).map((code) => (code || '').toString().toUpperCase()));
-  return getVouchers().filter((voucher) => owned.has((voucher.code || '').toString().toUpperCase()));
+  const owned = new Set(
+    (user.vouchers || []).map((code) => (code || "").toString().toUpperCase()),
+  );
+  return getVouchers().filter((voucher) =>
+    owned.has((voucher.code || "").toString().toUpperCase()),
+  );
 };
 
 const redeemPointsForVoucherLocal = (amount) => {
   const value = Number(amount || 0);
   const user = getCurrentUser();
-  if (!user) return { ok: false, msg: 'Vui lòng đăng nhập để đổi voucher.' };
+  if (!user) return { ok: false, msg: "Vui lòng đăng nhập để đổi voucher." };
   if (!Number.isFinite(value) || value <= 0 || value % 1000 !== 0) {
-    return { ok: false, msg: 'Mệnh giá voucher phải là bội số của 1.000đ.' };
+    return { ok: false, msg: "Mệnh giá voucher phải là bội số của 1.000đ." };
   }
 
   const requiredPoints = value / 1000;
   if (Number(user.points || 0) < requiredPoints) {
-    return { ok: false, msg: `Bạn cần ${requiredPoints.toLocaleString('vi-VN')} điểm để đổi voucher này.` };
+    return {
+      ok: false,
+      msg: `Bạn cần ${requiredPoints.toLocaleString("vi-VN")} điểm để đổi voucher này.`,
+    };
   }
 
   const users = getUsers();
   const userIdx = users.findIndex((u) => u.id === user.id);
-  if (userIdx === -1) return { ok: false, msg: 'Không tìm thấy tài khoản khách hàng.' };
+  if (userIdx === -1)
+    return { ok: false, msg: "Không tìm thấy tài khoản khách hàng." };
 
   const code = generateVoucherCode();
   const voucher = {
     code,
-    type: 'fixed',
+    type: "fixed",
     value,
     minOrder: 0,
-    startsAt: '',
-    expiresAt: '',
-    desc: `Voucher đổi từ ${requiredPoints.toLocaleString('vi-VN')} điểm thưởng`,
+    startsAt: "",
+    expiresAt: "",
+    desc: `Voucher đổi từ ${requiredPoints.toLocaleString("vi-VN")} điểm thưởng`,
     active: true,
-    source: 'rewards',
+    source: "rewards",
     userId: user.id,
     createdAt: nowIso(),
   };
 
-  const nextUser = sanitizeUser({
-    ...users[userIdx],
-    points: Math.max(0, Number(users[userIdx].points || 0) - requiredPoints),
-    vouchers: [...(users[userIdx].vouchers || []), code],
-  }, users[userIdx].id);
+  const nextUser = sanitizeUser(
+    {
+      ...users[userIdx],
+      points: Math.max(0, Number(users[userIdx].points || 0) - requiredPoints),
+      vouchers: [...(users[userIdx].vouchers || []), code],
+    },
+    users[userIdx].id,
+  );
   users[userIdx] = nextUser;
 
   const vouchers = getVouchers();
-  saveDb({ ...ensureDb(), users: sanitizeUsers(users), vouchers: [...vouchers, voucher] });
+  saveDb({
+    ...ensureDb(),
+    users: sanitizeUsers(users),
+    vouchers: [...vouchers, voucher],
+  });
   runRemoteSync(() => remoteDataService.saveVouchers([...vouchers, voucher]));
   saveCurrentUser(nextUser);
   return { ok: true, voucher, user: nextUser, pointsSpent: requiredPoints };
@@ -946,13 +1162,16 @@ export const redeemPointsForVoucher = async (amount) => {
 
   const value = Number(amount || 0);
   const user = getCurrentUser();
-  if (!user) return { ok: false, msg: 'Vui lòng đăng nhập để đổi voucher.' };
+  if (!user) return { ok: false, msg: "Vui lòng đăng nhập để đổi voucher." };
   if (!Number.isFinite(value) || value <= 0 || value % 1000 !== 0) {
-    return { ok: false, msg: 'Mệnh giá voucher phải là bội số của 1.000đ.' };
+    return { ok: false, msg: "Mệnh giá voucher phải là bội số của 1.000đ." };
   }
   const requiredPoints = value / 1000;
   if (Number(user.points || 0) < requiredPoints) {
-    return { ok: false, msg: `Bạn cần ${requiredPoints.toLocaleString('vi-VN')} điểm để đổi voucher này.` };
+    return {
+      ok: false,
+      msg: `Bạn cần ${requiredPoints.toLocaleString("vi-VN")} điểm để đổi voucher này.`,
+    };
   }
 
   try {
@@ -960,85 +1179,130 @@ export const redeemPointsForVoucher = async (amount) => {
     const voucher = normalizeVoucher(result.voucher);
     const users = getUsers();
     const userIdx = users.findIndex((item) => item.id === user.id);
-    if (userIdx === -1) throw new Error('Không tìm thấy tài khoản khách hàng.');
-    const nextUser = sanitizeUser({
-      ...users[userIdx],
-      points: Number(result.points || 0),
-      vouchers: Array.from(new Set([...(users[userIdx].vouchers || []), voucher.code])),
-    }, users[userIdx].id);
+    if (userIdx === -1) throw new Error("Không tìm thấy tài khoản khách hàng.");
+    const nextUser = sanitizeUser(
+      {
+        ...users[userIdx],
+        points: Number(result.points || 0),
+        vouchers: Array.from(
+          new Set([...(users[userIdx].vouchers || []), voucher.code]),
+        ),
+      },
+      users[userIdx].id,
+    );
     users[userIdx] = nextUser;
     const vouchers = getVouchers();
     saveDb({
       ...ensureDb(),
       users: sanitizeUsers(users),
-      vouchers: [...vouchers.filter((item) => item.code !== voucher.code), voucher],
+      vouchers: [
+        ...vouchers.filter((item) => item.code !== voucher.code),
+        voucher,
+      ],
     });
     saveCurrentUser(nextUser);
     return { ok: true, voucher, user: nextUser, pointsSpent: requiredPoints };
   } catch (error) {
-    return { ok: false, msg: error?.message || 'Không thể đổi voucher.' };
+    return { ok: false, msg: error?.message || "Không thể đổi voucher." };
   }
 };
 
 /* ---- Menu ---- */
-const ALLOWED_MENU_CATEGORIES = new Set(['ga', 'vit', 'bun', 'mien', 'chao', 'kho']);
-const MENU_IMAGE_EXTENSIONS = ['jpg', 'jpeg', 'png', 'webp'];
+const ALLOWED_MENU_CATEGORIES = new Set([
+  "ga",
+  "vit",
+  "bun",
+  "mien",
+  "chao",
+  "kho",
+]);
+const MENU_IMAGE_EXTENSIONS = ["jpg", "jpeg", "png", "webp"];
 
 const normalizeMenuCategory = (cat) => {
-  const raw = (cat || '').toString().trim().toLowerCase();
-  if (!raw) return 'kho';
-  if (['ga', 'gà', 'chicken'].includes(raw)) return 'ga';
-  if (['vit', 'vịt', 'duck'].includes(raw)) return 'vit';
-  if (['bun', 'bún', 'noodle'].includes(raw)) return 'bun';
-  if (['mien', 'miến', 'glass noodle'].includes(raw)) return 'mien';
-  if (['chao', 'cháo', 'porridge'].includes(raw)) return 'chao';
-  if (['kho', 'khô', 'món khô', 'mon kho', 'dry', 'com', 'cơm', 'rice', 'phu', 'món phụ', 'mon phu', 'side', 'uong', 'đồ uống', 'do uong', 'drink', 'nuoc', 'nước'].includes(raw)) return 'kho';
-  return 'kho';
+  const raw = (cat || "").toString().trim().toLowerCase();
+  if (!raw) return "kho";
+  if (["ga", "gà", "chicken"].includes(raw)) return "ga";
+  if (["vit", "vịt", "duck"].includes(raw)) return "vit";
+  if (["bun", "bún", "noodle"].includes(raw)) return "bun";
+  if (["mien", "miến", "glass noodle"].includes(raw)) return "mien";
+  if (["chao", "cháo", "porridge"].includes(raw)) return "chao";
+  if (
+    [
+      "kho",
+      "khô",
+      "món khô",
+      "mon kho",
+      "dry",
+      "com",
+      "cơm",
+      "rice",
+      "phu",
+      "món phụ",
+      "mon phu",
+      "side",
+      "uong",
+      "đồ uống",
+      "do uong",
+      "drink",
+      "nuoc",
+      "nước",
+    ].includes(raw)
+  )
+    return "kho";
+  return "kho";
 };
 
 const slugifyMenuName = (name) =>
-  (name || '')
+  (name || "")
     .toString()
     .trim()
     .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/đ/g, 'd')
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '');
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/đ/g, "d")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
 
 const inferMenuImagePath = (item) => {
   const slug = slugifyMenuName(item?.name);
-  if (!slug) return '';
+  if (!slug) return "";
   return `assets/images/${slug}.${MENU_IMAGE_EXTENSIONS[0]}`;
 };
 
 const isMissingMenuImage = (img) => {
-  const value = (img || '').toString().trim();
-  return !value || value.endsWith('/placeholder.svg') || value === 'placeholder.svg';
+  const value = (img || "").toString().trim();
+  return (
+    !value || value.endsWith("/placeholder.svg") || value === "placeholder.svg"
+  );
 };
 
 const normalizeMenuItem = (item, defaultItem = null) => {
   const { badge, available, isNew, ...itemWithoutLegacyFlags } = item || {};
-  delete itemWithoutLegacyFlags['is' + 'New'];
+  delete itemWithoutLegacyFlags["is" + "New"];
   const normalizedCategory = normalizeMenuCategory(item.category);
-  const fixedCategory = ALLOWED_MENU_CATEGORIES.has(normalizedCategory) ? normalizedCategory : 'kho';
+  const fixedCategory = ALLOWED_MENU_CATEGORIES.has(normalizedCategory)
+    ? normalizedCategory
+    : "kho";
 
   const sold = Number.isFinite(Number(item.sold)) ? Number(item.sold) : 0;
-  const defaultImage = isMissingMenuImage(defaultItem?.img) ? '' : defaultItem?.img;
+  const defaultImage = isMissingMenuImage(defaultItem?.img)
+    ? ""
+    : defaultItem?.img;
   const image = isMissingMenuImage(item.img)
     ? (defaultImage || inferMenuImagePath(item)).toString()
     : item.img.toString();
 
-  const rawStatus = (item.status || '').toString().trim().toLowerCase();
-  const status = ['available', 'soldout', 'hidden'].includes(rawStatus)
+  const rawStatus = (item.status || "").toString().trim().toLowerCase();
+  const status = ["available", "soldout", "hidden"].includes(rawStatus)
     ? rawStatus
-    : available === false ? 'soldout' : 'available';
+    : available === false
+      ? "soldout"
+      : "available";
 
   return {
     ...itemWithoutLegacyFlags,
     category: fixedCategory,
-    desc: (item.desc || '').toString(),
+    desc: (item.desc || "").toString(),
     img: image,
     status,
     sold,
@@ -1049,14 +1313,23 @@ export const getMenu = () => {
   const db = ensureDb();
   const stored = Array.isArray(db.menu) ? db.menu : [];
   const normalized = stored.map((item) => normalizeMenuItem(item));
-  if (stored.length !== normalized.length || stored.some((item, idx) => JSON.stringify(item) !== JSON.stringify(normalized[idx]))) {
+  if (
+    stored.length !== normalized.length ||
+    stored.some(
+      (item, idx) => JSON.stringify(item) !== JSON.stringify(normalized[idx]),
+    )
+  ) {
     saveDb({ ...db, menu: normalized });
   }
   return normalized;
 };
 export const saveMenu = (menu) => {
   const db = ensureDb();
-  const normalized = Array.isArray(menu) ? menu.map((item) => normalizeMenuItem(item)).filter((item) => ALLOWED_MENU_CATEGORIES.has(item.category)) : [];
+  const normalized = Array.isArray(menu)
+    ? menu
+        .map((item) => normalizeMenuItem(item))
+        .filter((item) => ALLOWED_MENU_CATEGORIES.has(item.category))
+    : [];
   saveDb({ ...db, menu: normalized });
   runRemoteSync(() => remoteDataService.saveMenu(normalized));
 };
@@ -1104,7 +1377,7 @@ export const createReservation = (data = {}) => {
   const db = ensureDb();
 
   const parseSeqFromId = (id) => {
-    const m = /^RES-(\d{4})$/.exec((id || '').toString());
+    const m = /^RES-(\d{4})$/.exec((id || "").toString());
     if (!m) return null;
     const n = Number(m[1]);
     return Number.isFinite(n) ? n : null;
@@ -1114,7 +1387,7 @@ export const createReservation = (data = {}) => {
   const usedSeq = new Set(
     existing
       .map((r) => parseSeqFromId(r?.id))
-      .filter((n) => Number.isFinite(n) && n >= 1 && n <= 9999)
+      .filter((n) => Number.isFinite(n) && n >= 1 && n <= 9999),
   );
 
   const maxExistingSeq = existing.reduce((max, r) => {
@@ -1144,21 +1417,22 @@ export const createReservation = (data = {}) => {
   const price = Number(data?.price || 0);
   const safePrice = Number.isFinite(price) && price >= 0 ? price : 0;
   const total = Number(data?.total);
-  const safeTotal = Number.isFinite(total) && total >= 0 ? total : safePrice * safeQty;
+  const safeTotal =
+    Number.isFinite(total) && total >= 0 ? total : safePrice * safeQty;
 
   const reservation = {
-    id: `RES-${String(seq).padStart(4, '0')}`,
+    id: `RES-${String(seq).padStart(4, "0")}`,
     userId: data?.userId ? data.userId.toString() : null,
-    name: (data?.name || '').toString().trim(),
-    phone: (data?.phone || '').toString().trim(),
-    type: (data?.type || '').toString(),
-    itemName: (data?.itemName || '').toString().trim() || null,
+    name: (data?.name || "").toString().trim(),
+    phone: (data?.phone || "").toString().trim(),
+    type: (data?.type || "").toString(),
+    itemName: (data?.itemName || "").toString().trim() || null,
     qty: safeQty,
     price: safePrice,
     total: safeTotal,
-    date: (data?.date || '').toString(),
-    note: (data?.note || '').toString().trim(),
-    status: 'pending',
+    date: (data?.date || "").toString(),
+    note: (data?.note || "").toString().trim(),
+    status: "pending",
     staffCreated: Boolean(data?.staffCreated),
     pointsEarned: data?.staffCreated ? 0 : calculateOrderPoints(safeTotal),
     pointsAwarded: false,
@@ -1176,7 +1450,9 @@ export const createReservationOnline = async (data = {}) => {
   if (!shouldUseRemote()) return createReservation(data);
   const reservation = await remoteDataService.createReservation(data);
   const db = ensureDb();
-  const reservations = Array.isArray(db.reservations) ? [...db.reservations] : [];
+  const reservations = Array.isArray(db.reservations)
+    ? [...db.reservations]
+    : [];
   const idx = reservations.findIndex((item) => item.id === reservation.id);
   if (idx >= 0) reservations[idx] = reservation;
   else reservations.push(reservation);
@@ -1186,7 +1462,7 @@ export const createReservationOnline = async (data = {}) => {
 
 export const migrateLocalDataToOnline = async () => {
   if (!shouldUseRemote()) {
-    return { ok: false, msg: 'Supabase chưa được cấu hình.' };
+    return { ok: false, msg: "Supabase chưa được cấu hình." };
   }
 
   const user = getCurrentUser();
@@ -1206,22 +1482,28 @@ export const migrateLocalDataToOnline = async () => {
       result.cartItems = cart.length;
     }
 
-    const userOrders = user?.id ? getOrders().filter((order) => order.userId === user.id) : [];
+    const userOrders = user?.id
+      ? getOrders().filter((order) => order.userId === user.id)
+      : [];
     for (const order of userOrders) {
       await remoteDataService.saveOrder(order);
     }
     result.orders = userOrders.length;
 
     const userReservations = user?.id
-      ? getReservations().filter((reservation) => reservation.userId === user.id)
+      ? getReservations().filter(
+          (reservation) => reservation.userId === user.id,
+        )
       : [];
     for (const reservation of userReservations) {
       await remoteDataService.createReservation(reservation);
     }
     result.reservations = userReservations.length;
 
-    const profile = await remoteDataService.getCurrentProfile().catch(() => null);
-    if (['owner', 'staff'].includes(profile?.role)) {
+    const profile = await remoteDataService
+      .getCurrentProfile()
+      .catch(() => null);
+    if (["owner", "staff"].includes(profile?.role)) {
       const menu = getMenu();
       const vouchers = getVouchers();
       await remoteDataService.saveMenu(menu);
@@ -1243,7 +1525,7 @@ export const migrateLocalDataToOnline = async () => {
     return {
       ...result,
       ok: false,
-      msg: error?.message || 'Không thể migrate dữ liệu local lên online.',
+      msg: error?.message || "Không thể migrate dữ liệu local lên online.",
       error,
     };
   }
@@ -1254,11 +1536,20 @@ export const getLocalMigrationSummary = () => {
   const user = getCurrentUser();
   const migratedAt = db?.meta?.migratedLocalDataToOnlineAt;
   const cartItems = getCart().length;
-  const orders = user?.id ? getOrders().filter((order) => order.userId === user.id).length : 0;
-  const reservations = user?.id ? getReservations().filter((reservation) => reservation.userId === user.id).length : 0;
-  const profileRole = user?.role || 'customer';
-  const menuItems = ['owner', 'staff'].includes(profileRole) ? getMenu().length : 0;
-  const vouchers = ['owner', 'staff'].includes(profileRole) ? getVouchers().length : 0;
+  const orders = user?.id
+    ? getOrders().filter((order) => order.userId === user.id).length
+    : 0;
+  const reservations = user?.id
+    ? getReservations().filter((reservation) => reservation.userId === user.id)
+        .length
+    : 0;
+  const profileRole = user?.role || "customer";
+  const menuItems = ["owner", "staff"].includes(profileRole)
+    ? getMenu().length
+    : 0;
+  const vouchers = ["owner", "staff"].includes(profileRole)
+    ? getVouchers().length
+    : 0;
   const total = cartItems + orders + reservations + menuItems + vouchers;
 
   return {
@@ -1275,10 +1566,18 @@ export const getLocalMigrationSummary = () => {
 
 /* ---- Utils ---- */
 export const formatPrice = (n) =>
-  new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(n);
+  new Intl.NumberFormat("vi-VN", { style: "currency", currency: "VND" }).format(
+    n,
+  );
 
 export const formatDate = (iso) =>
-  new Date(iso).toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+  new Date(iso).toLocaleDateString("vi-VN", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 
 export const generateOrderCode = () =>
   (() => {
@@ -1287,7 +1586,7 @@ export const generateOrderCode = () =>
     const meta = db.meta || {};
 
     const parseSeqFromId = (id) => {
-      const m = /^ORD-(\d{4})$/.exec((id || '').toString());
+      const m = /^ORD-(\d{4})$/.exec((id || "").toString());
       if (!m) return null;
       const n = Number(m[1]);
       return Number.isFinite(n) ? n : null;
@@ -1296,7 +1595,7 @@ export const generateOrderCode = () =>
     const usedSeq = new Set(
       orders
         .map((o) => parseSeqFromId(o?.id))
-        .filter((n) => Number.isFinite(n) && n >= 1 && n <= 9999)
+        .filter((n) => Number.isFinite(n) && n >= 1 && n <= 9999),
     );
 
     const maxExistingSeq = orders.reduce((max, o) => {
@@ -1317,5 +1616,5 @@ export const generateOrderCode = () =>
     };
 
     const nextSeq = findNextAvailableSeq(seq + 1) ?? 9999;
-    return `ORD-${String(nextSeq).padStart(4, '0')}`;
+    return `ORD-${String(nextSeq).padStart(4, "0")}`;
   })();

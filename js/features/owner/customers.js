@@ -263,15 +263,13 @@ const bindCustomerForm = (closeDrawer, customer = null) => {
       }
       return;
     }
-    const idx = users.findIndex((u) => u.id === id);
-    if (idx === -1) return;
-    const nextCustomer = {
-      ...users[idx],
-      name: document.getElementById('customer-name').value.trim(),
-      phone,
-    };
+    if (!users.some((u) => u.id === id)) return;
     try {
-      users[idx] = await updateCustomerOnline(nextCustomer);
+      await updateCustomerOnline({
+        id,
+        name: document.getElementById('customer-name').value.trim(),
+        phone,
+      });
       invalidateOwnerData();
       toast.success('Đã lưu khách hàng.');
       closeDrawer?.();

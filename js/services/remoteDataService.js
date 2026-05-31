@@ -642,6 +642,20 @@ export const remoteDataService = {
     if (error) throw error;
   },
 
+  async saveVoucher(oldCode, voucher = {}) {
+    const client = requireSupabase();
+    const previousCode = (oldCode || '').toString().trim().toUpperCase();
+    const nextRow = toVoucherRow(voucher);
+    if (!nextRow.code) throw new Error('Mã voucher không hợp lệ.');
+    const { error } = await client.from('vouchers').upsert(nextRow, { onConflict: 'code' });
+    if (error) throw error;
+    if (previousCode && previousCode !== nextRow.code) {
+      const { error: deleteError } = await client.from('vouchers').delete().eq('code', previousCode);
+      if (deleteError) throw deleteError;
+    }
+    return mapVoucher({ ...nextRow, created_at: voucher.createdAt || '' });
+  },
+
   async deleteVoucher(code) {
     const client = requireSupabase();
     const { error } = await client.from('vouchers').delete().eq('code', (code || '').toString().toUpperCase());
