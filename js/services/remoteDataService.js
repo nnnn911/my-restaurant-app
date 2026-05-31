@@ -48,7 +48,6 @@ const mapStaffActor = (row = {}) => ({
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const resolveStaffActorAuthId = async (client, actor = {}) => {
-  if (actor.authId && UUID_RE.test(actor.authId)) return actor.authId;
   const lookupId = (actor.authId || actor.id || '').toString().trim();
   if (!lookupId) throw new Error('Không tìm thấy tài khoản nhân viên.');
   const query = client
@@ -56,16 +55,32 @@ const resolveStaffActorAuthId = async (client, actor = {}) => {
     .select('id, public_code, role')
     .in('role', ['staff', 'shipper'])
     .limit(1);
-  const { data, error } = UUID_RE.test(lookupId)
-    ? await query.eq('id', lookupId).maybeSingle()
-    : await query.eq('public_code', lookupId).maybeSingle();
-  if (error) throw error;
+  
+  let data, error;
+  if (UUID_RE.test(lookupId)) {
+    ({ data, error } = await query.eq('id', lookupId).maybeSingle());
+    if (error) throw error;
+    if (!data?.id && actor.id && actor.id !== lookupId) {
+      const fallbackQuery = client
+        .from('profile_details')
+        .select('id, public_code, role')
+        .in('role', ['staff', 'shipper'])
+        .eq('public_code', actor.id.toString().trim())
+        .limit(1);
+      const { data: fallbackData, error: fallbackError } = await fallbackQuery.maybeSingle();
+      if (fallbackError) throw fallbackError;
+      if (fallbackData?.id) return fallbackData.id;
+    }
+  } else {
+    ({ data, error } = await query.eq('public_code', lookupId).maybeSingle());
+    if (error) throw error;
+  }
+
   if (!data?.id) throw new Error('Không tìm thấy nhân viên.');
   return data.id;
 };
 
 const resolveCustomerAuthId = async (client, user = {}) => {
-  if (user.authId && UUID_RE.test(user.authId)) return user.authId;
   const lookupId = (user.authId || user.id || '').toString().trim();
   if (!lookupId) throw new Error('Không tìm thấy tài khoản khách hàng.');
   const query = client
@@ -73,10 +88,27 @@ const resolveCustomerAuthId = async (client, user = {}) => {
     .select('id, public_code, role')
     .eq('role', 'customer')
     .limit(1);
-  const { data, error } = UUID_RE.test(lookupId)
-    ? await query.eq('id', lookupId).maybeSingle()
-    : await query.eq('public_code', lookupId).maybeSingle();
-  if (error) throw error;
+
+  let data, error;
+  if (UUID_RE.test(lookupId)) {
+    ({ data, error } = await query.eq('id', lookupId).maybeSingle());
+    if (error) throw error;
+    if (!data?.id && user.id && user.id !== lookupId) {
+      const fallbackQuery = client
+        .from('profile_details')
+        .select('id, public_code, role')
+        .eq('role', 'customer')
+        .eq('public_code', user.id.toString().trim())
+        .limit(1);
+      const { data: fallbackData, error: fallbackError } = await fallbackQuery.maybeSingle();
+      if (fallbackError) throw fallbackError;
+      if (fallbackData?.id) return fallbackData.id;
+    }
+  } else {
+    ({ data, error } = await query.eq('public_code', lookupId).maybeSingle());
+    if (error) throw error;
+  }
+
   if (!data?.id) throw new Error('Không tìm thấy khách hàng.');
   return data.id;
 };
